@@ -145,12 +145,12 @@
     let myRole = "";
     let currentPhase = "LOBBY"; 
 
-    // ゲーム内全プレイヤーリスト（ボット含む）
     let playerList = []; 
-    let lobbyDummies = ["ボットA", "ボットB", "ボットC"]; // あらかじめ用意するボット名
+    let lobbyDummies = ["ボットA", "ボットB", "ボットC"]; 
 
     let nightActions = { wolfTarget: null, seerTarget: null, robberTarget: null };
     let votesReceived = {}; 
+    let botSeerReportMessage = ""; 
 
     const chooseHostBtn = document.getElementById('choose-host');
     const chooseJoinBtn = document.getElementById('choose-join');
@@ -199,7 +199,6 @@
             lockUI();
             btnGameControl.style.display = 'block';
 
-            // ホスト起動時にボット3人を速攻で入室通知させる
             lobbyDummies.forEach(dummyName => {
                 logMessage(`[入室通知] ${dummyName} (ボット) さんが入室しました。`);
             });
@@ -210,7 +209,6 @@
             logMessage(`[システム] 新しいプレイヤーが参加しました。`);
             c.on('data', (data) => handleReceivedData(data, c));
             
-            // ゲストが入ってきたら、現在のボット入室情報を同期するために一度通知
             setTimeout(() => {
                 lobbyDummies.forEach(dummyName => {
                     c.send({ type: "DUMMY_JOIN_NOTICE", name: dummyName });
@@ -263,7 +261,7 @@
         }
         else if (data.type === "GAME_START") {
             playerList = data.playerList; 
-            myRole = data.role; // 同期された自分の最新役職
+            myRole = data.role; 
             showRoleAnimation(myRole);
         }
         else if (data.type === "PHASE_CHANGE") {
@@ -298,6 +296,12 @@
         else if (data.type === "ROBBER_RESULT") {
             logMessage(`[怪盗の報告] ${data.target} さんの役職（${data.result}）を盗み取りました！`);
         }
+        else if (data.type === "ROBBED_NOTICE") {
+            logMessage(`[⚠️通知] 夜の間に ${data.by} (ボット) にあなたの役職を盗まれました！あなたは市民になりました。`);
+        }
+        else if (data.type === "SYSTEM_LOG") {
+            logMessage(data.message);
+        }
         else if (data.type === "GAME_OVER") {
             showResultAnimation(data.winner);
         }
@@ -312,33 +316,33 @@
         
         let allPlayers = [{ id: "HOST", name: myName, role: "市民", isDummy: false, conn: null }];
         connections.forEach(c => {
-            if (c.open) allPlayers.push({ id: c.peer, name: c.playerName || "名無し", role: "市民", isDummy: false, conn: c });
+            if (c && c.open) allPlayers.push({ id: c.peer, name: c.playerName || "名無し", role: "市民", isDummy: false, conn: c });
         });
 
-        // 固定で用意したボット3人をプレイヤーリストに必ず結合
         lobbyDummies.forEach((dName, idx) => {
             allPlayers.push({ id: `BOT_${idx}`, name: dName, role: "市民", isDummy: true, conn: null });
         });
 
         logMessage("[システム] ゲームを開始します。役職を配布中...");
 
-        // 5人用の役職セット (人狼, 占い師, 怪盗, 狂人, 市民)
         let roles = ["人狼", "占い師", "怪盗", "狂人", "市民"];
         while(roles.length < allPlayers.length) roles.push("市民");
         roles.sort(() => Math.random() - 0.5);
 
         allPlayers.forEach((p, idx) => { p.role = roles[idx]; });
         
-        // ★【修正箇所】ボット3人全員がここできちんとplayerListに結合されて生存登録されるように修正
         playerList = allPlayers.map(p => ({ name: p.name, role: p.role, alive: true, isDummy: p.isDummy }));
 
         allPlayers.forEach((player) => {
             if (player.id === "HOST") {
                 myRole = player.role;
                 showRoleAnimation(player.role);
-            } else if (!player.isDummy) {
-                player.conn.playerRole = player.role; 
-                player.conn.send({ type: "GAME_START", role: player.role, playerList: playerList });
+            } else if (!player.isDummy && player.conn) {
+                // ★【バグ修正箇所】相手のコネクションが存在し、かつオープンな時のみ安全にデータを送る
+                if (player.conn.open) {
+                    player.conn.playerRole = player.role; 
+                    player.conn.send({ type: "GAME_START", role: player.role, playerList: playerList });
+                }
             }
         });
 
@@ -347,14 +351,17 @@
     });
 
     function triggerPhaseChange(nextPhase) {
-        if (nextPhase === "NIGHT") nightActions = { wolfTarget: null, seerTarget: null, robberTarget: null };
+        if (nextPhase === "NIGHT") {
+            nightActions = { wolfTarget: null, seerTarget: null, robberTarget: null };
+            botSeerReportMessage = "";
+        }
         if (nextPhase === "DAY") votesReceived = {};
 
         broadcast({ type: "PHASE_CHANGE", phase: nextPhase, playerList: playerList });
         changePhaseStyle(nextPhase);
 
         if (isHost) {
-            setTimeout(() => { handleDummyAI(nextPhase); }, 1500);
+            setTimeout(() => { handleDummyAI(nextPhase); }, 1000);
         }
     }
 
@@ -366,25 +373,23 @@
             if (!p.isDummy || !p.alive) return;
 
             if (phase === "NIGHT") {
-                if (p.role === "人狼") {
-                    const targets = playerList.filter(t => t.name !== p.name && t.alive);
-                    if (targets.length > 0 && !nightActions.wolfTarget) {
-                        nightActions.wolfTarget = targets[Math.floor(Math.random() * targets.length)].name;
-                    }
+                const targets = playerList.filter(t => t.name !== p.name && t.alive);
+                if (targets.length === 0) return;
+
+                if (p.role === "人狼" && !nightActions.wolfTarget) {
+                    const chosen = targets[Math.floor(Math.random() * targets.length)].name;
+                    nightActions.wolfTarget = chosen;
                 }
-                if (p.role === "占い師") {
-                    const targets = playerList.filter(t => t.name !== p.name && t.alive);
-                    if (targets.length > 0 && !nightActions.seerTarget) {
-                        nightActions.seerTarget = targets[Math.floor(Math.random() * targets.length)].name;
-                    }
+                if (p.role === "占い師" && !nightActions.seerTarget) {
+                    const chosenTarget = targets[Math.floor(Math.random() * targets.length)];
+                    nightActions.seerTarget = chosenTarget.name;
+                    const isWolfResult = chosenTarget.role === "人狼" ? "人狼" : "人間";
+                    botSeerReportMessage = `[ボットの占い報告] ${p.name} が ${chosenTarget.name} を占った結果、${isWolfResult} でした。`;
                 }
-                if (p.role === "怪盗") {
-                    const targets = playerList.filter(t => t.name !== p.name && t.alive);
-                    if (targets.length > 0 && !nightActions.robberTarget) {
-                        nightActions.robberTarget = targets[Math.floor(Math.random() * targets.length)].name;
-                    }
+                if (p.role === "怪盗" && !nightActions.robberTarget) {
+                    const chosen = targets[Math.floor(Math.random() * targets.length)].name;
+                    nightActions.robberTarget = chosen;
                 }
-                checkNightActionsComplete();
             } 
             else if (phase === "DAY") {
                 const targets = playerList.filter(t => t.alive);
@@ -392,9 +397,14 @@
                     votesReceived[p.name] = targets[Math.floor(Math.random() * targets.length)].name;
                     logMessage(`[システム] ${p.name} さんが投票を完了しました。`);
                 }
-                checkVotesComplete();
             }
         });
+
+        if (phase === "NIGHT") {
+            checkNightActionsComplete();
+        } else if (phase === "DAY") {
+            checkVotesComplete();
+        }
     }
 
     // --- 🌓 ホスト側集計＆勝敗判定 ---
@@ -443,9 +453,18 @@
                     
                     if (myName === thief.name) {
                         logMessage(`[怪盗の報告] ${victim.name} さんの役職（${oldVictimRole}）を盗み取りました！`);
-                    } else if (!thief.isDummy) {
-                        const thiefConn = connections.find(c => c.playerName === thief.name);
-                        if (thiefConn) thiefConn.send({ type: "ROBBER_RESULT", target: victim.name, result: oldVictimRole });
+                    } 
+                    else if (!victim.isDummy) {
+                        if (myName === victim.name) {
+                            logMessage(`[⚠️通知] 夜の間に ${thief.name} (ボット) にあなたの役職を盗まれました！あなたは市民になりました。`);
+                        } else {
+                            const victimConn = connections.find(c => c && c.playerName === victim.name);
+                            if (victimConn && victimConn.open) victimConn.send({ type: "ROBBED_NOTICE", by: thief.name });
+                        }
+                    }
+                    else if (!thief.isDummy) {
+                        const thiefConn = connections.find(c => c && c.playerName === thief.name);
+                        if (thiefConn && thiefConn.open) thiefConn.send({ type: "ROBBER_RESULT", target: victim.name, result: oldVictimRole });
                     }
                 }
             }
@@ -454,12 +473,19 @@
                 const victim = playerList.find(p => p.name === nightActions.wolfTarget);
                 if (victim) victim.alive = false;
                 logMessage(`[システム] 朝が来ました。昨日亡くなったのは ${nightActions.wolfTarget} さんです。`);
+                broadcast({ type: "SYSTEM_LOG", message: `[システム] 朝が来ました。昨日亡くなったのは ${nightActions.wolfTarget} さんです。` });
             } else {
                 logMessage(`[システム] 朝が来ました。昨晩は誰も亡くなりませんでした。`);
+                broadcast({ type: "SYSTEM_LOG", message: `[システム] 朝が来ました。昨晩は誰も亡くなりませんでした。` });
+            }
+
+            if (botSeerReportMessage !== "") {
+                logMessage(botSeerReportMessage);
+                broadcast({ type: "SYSTEM_LOG", message: botSeerReportMessage });
             }
             
             if (checkGameEnd()) return;
-            setTimeout(() => { triggerPhaseChange("DAY"); }, 2000);
+            setTimeout(() => { triggerPhaseChange("DAY"); }, 3000);
         }
     }
 
@@ -483,19 +509,22 @@
                 }
             }
 
-            logMessage(`[投票結果] 集計が完了しました。最も票を集めたのは ${mostVoted} さん（${maxVotes}票）です。`);
+            const resultStr = `[投票結果] 集計が完了しました。最も票を集めたのは ${mostVoted} さん（${maxVotes}票）です。`;
+            logMessage(resultStr);
+            broadcast({ type: "SYSTEM_LOG", message: resultStr });
             
             const victim = playerList.find(p => p.name === mostVoted);
             if (victim) victim.alive = false;
 
-            logMessage(`[システム] ${mostVoted} さんが追放されました。`);
+            const executionStr = `[システム] ${mostVoted} さんが追放されました。`;
+            logMessage(executionStr);
+            broadcast({ type: "SYSTEM_LOG", message: executionStr });
 
             if (checkGameEnd()) return;
             setTimeout(() => { triggerPhaseChange("NIGHT"); }, 4000);
         }
     }
 
-    // --- 👑 演出アニメーション ---
     function showRoleAnimation(role) {
         overlayTitleText.textContent = "あなたの役職は…";
         overlayRoleText.textContent = role; 
@@ -520,7 +549,6 @@
         msgInput.placeholder = "ゲームが終了しました。";
     }
 
-    // --- 🔄 リセット・初期化 ---
     btnResetGame.addEventListener('click', () => {
         if (!isHost) return;
         resetToLobbyState();
@@ -532,6 +560,7 @@
         myRole = "";
         nightActions = { wolfTarget: null, seerTarget: null, robberTarget: null };
         votesReceived = {};
+        botSeerReportMessage = "";
         btnResetGame.style.display = 'none';
         document.body.className = "day-mode";
         
@@ -548,7 +577,6 @@
         msgInput.placeholder = "メッセージを入力...";
     }
 
-    // --- 🌓 演出と行動UIパネルの切り替え ---
     function changePhaseStyle(phase) {
         if (phase === "GAMEOVER") return;
         currentPhase = phase;
@@ -644,7 +672,7 @@
                 if (myRole === "怪盗") nightActions.robberTarget = target;
                 checkNightActionsComplete();
             } else {
-                conn.send({ type: "SUBMIT_NIGHT_ACTION", role: myRole, target: target });
+                if (conn && conn.open) conn.send({ type: "SUBMIT_NIGHT_ACTION", role: myRole, target: target });
             }
         } 
         else if (currentPhase === "DAY") {
@@ -653,7 +681,7 @@
                 votesReceived[myName] = target;
                 checkVotesComplete();
             } else {
-                conn.send({ type: "SUBMIT_VOTE", sender: myName, target: target });
+                if (conn && conn.open) conn.send({ type: "SUBMIT_VOTE", sender: myName, target: target });
             }
         }
     });
@@ -669,7 +697,7 @@
         if (isHost) {
             if (type === "WOLF_CHAT") {
                 logMessage(`[人狼会議] あなた: ${text}`);
-                connections.forEach(c => { if (c.open && c.playerRole === "人狼") c.send(payload); });
+                connections.forEach(c => { if (c && c.open && c.playerRole === "人狼") c.send(payload); });
             } else {
                 logMessage(`${payload.sender}: ${payload.message}`);
                 broadcast(payload);
@@ -684,7 +712,7 @@
     }
 
     function broadcast(data) {
-        connections.forEach(c => { if (c.open) c.send(data); });
+        connections.forEach(c => { if (c && c.open) c.send(data); });
     }
 
     function logMessage(msg) {
