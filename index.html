@@ -96,7 +96,7 @@
     <div class="overlay-desc" id="overlay-desc-text">説明文がここに表示されます。</div>
 </div>
 
-<div id="move-loading" class="loading-overlay">旅の扉を通過中...</div>
+<div id="move-loading" class="loading-overlay">旅 of 扉を通過中...</div>
 
 <div class="container">
     <h2>幻想世界の探索・密談人狼RPG</h2>
@@ -123,7 +123,7 @@
         <button id="btn-start-join" class="btn-action">世界へ飛び込む</button>
     </div>
 
-    <!-- 参加者管理パネル（ホスト用キック機能付き） -->
+    <!-- 参加者管理パネル -->
     <div class="member-list-panel" id="lobby-member-panel">
         <h4 style="margin: 0 0 8px 0; font-size: 0.95rem; color: #5dade2;">現在の生存者・構成員</h4>
         <div id="member-list-container"></div>
@@ -165,12 +165,12 @@
     let peer = null, connections = [], conn = null, isHost = false;
     let myName = "", myRole = "", currentPhase = "LOBBY", currentArea = "聖なる大広場", isMoving = false;
     let playerList = [], lobbyDummies = ["幻影ボットA", "幻影ボットB", "幻影ボットC"]; 
-    let banList = []; // キックされた人の名前ブラックリスト
+    let banList = []; 
     let nightActions = {}, votesReceived = {}, countdownInterval = null;
     let botSeerMemory = {};
 
     const roleDescriptions = {
-        "市民": "[市民陣営] 特別な力を持たない一般の冒険者。昼の議論で怪しい者をあぶり出し、すべての「人狼」を追放すれば勝利となる！",
+        "市民": "[市民陣営] 特別な力を持たない一般 of 冒険者。昼の議論で怪しい者をあぶり出し、すべての「人狼」を追放すれば勝利となる！",
         "人狼": "[人狼陣営] 夜になると魔狼に変身し、誰か1人を襲撃できる。正体を隠して紛れ込み、生存している人狼の数が市民陣営と同数以上になれば勝利！",
         "占い師": "[市民陣営] 夜の間に、生存者1人を指定して「人狼」か「人間」かを見破る大魔法を使える。市民陣営を勝利へ導く超重要職！",
         "騎士": "[市民陣営] 夜の間に、自分以外の誰か1人を人狼の襲撃から守ることができる。誰が狙われそうか推理して守り抜け！",
@@ -327,19 +327,14 @@
         }
     }
 
-    // ホスト用の強制退出(キック)処理
     function kickPlayer(targetName) {
         if (!isHost) return;
         if (targetName === myName) return alert("自分自身を追放することはできません。");
-        
         if (!confirm(`${targetName} をこの部屋から強制退出させ、ブラックリストに登録しますか？`)) return;
 
         banList.push(targetName);
-        
-        // プレイヤーリストから削除
         playerList = playerList.filter(p => p.name !== targetName);
         
-        // 通信接続を探して切断メッセージを送って閉じる
         let targetConn = connections.find(c => c.playerName === targetName);
         if (targetConn) {
             targetConn.send({ type: "KICKED_NOTICE", reason: "ホストによるブロック" });
@@ -360,10 +355,12 @@
             let statusBadge = p.alive ? "【生】" : "【死】";
             let nameSpan = document.createElement('span');
             nameSpan.textContent = `${statusBadge} ${p.name} (${p.area})`;
-            if(!p.alive) nameSpan.style.textDecoration = "line-through";
+            if(!p.alive) {
+                nameSpan.style.textDecoration = "line-through";
+                nameSpan.style.color = "#7f8c8d";
+            }
             div.appendChild(nameSpan);
 
-            // ホスト画面かつ自分以外かつゲーム中でない/生存かつボットでない場合キックボタン付与
             if (isHost && p.name !== myName && !p.isDummy) {
                 let btn = document.createElement('button');
                 btn.className = "btn-kick";
@@ -480,7 +477,6 @@
             showOverlay("[常闇の夜フェーズ]", "解き放たれる魔力。30秒以内に行動を選択してください", "人狼");
             chatTitle.textContent = "深き眠りの中…"; mainChat.value = ""; timerDisplay.style.display = 'block';
             
-            // テルテルは夜に行動を持たない
             if (["人狼", "占い師", "騎士"].includes(myRole)) activateActionUI(`【${myRole}の能力】対象を選択してください: `, false);
             
             if (isHost) {
@@ -545,18 +541,27 @@
 
         let title = "[夜明けの告解]";
         let report = "昨晩、悲劇は起きなかった。皆健在だ。";
+        let styleType = "ANNOUNCE";
+
         if (wTarget) {
             if (kTarget && wTarget === kTarget) {
                 report = "人狼の牙が襲いかかるも、騎士の盾がそれを弾き返した！";
             } else {
                 let vic = playerList.find(p => p.name === wTarget);
-                if (vic) { vic.alive = false; report = `無念！ 昨晩 ${vic.name} 殿が魔狼に襲われ、命を落としました。`; }
+                if (vic) { 
+                    vic.alive = false; 
+                    title = "【無念の死】";
+                    report = `昨晩、${vic.name} 殿が魔狼に襲撃され、命を落としました。`; 
+                    styleType = "人狼"; 
+                }
             }
         }
 
+        syncAllPlayers(); 
+
         if (checkVictoryConditions(title, report, null)) return;
 
-        sendDataToAll({ type: "ANNOUNCE_OVERLAY", title: title, body: report });
+        sendDataToAll({ type: "ANNOUNCE_OVERLAY", title: title, body: report, roleStyle: styleType });
         sendDataToAll({ type: "SYSTEM_LOG", msg: `${title} ${report}` });
         
         setTimeout(() => { changePhase("DAY"); }, 4500);
@@ -593,23 +598,31 @@
             }
         }
 
+        syncAllPlayers(); 
+
         if (checkVictoryConditions(title, msg, votedRole)) return;
 
-        sendDataToAll({ type: "ANNOUNCE_OVERLAY", title: title, body: msg });
+        sendDataToAll({ type: "ANNOUNCE_OVERLAY", title: title, body: msg, roleStyle: "ANNOUNCE" });
         sendDataToAll({ type: "SYSTEM_LOG", msg: `${title} ${msg}` });
         
+        // 【修正】ポップアップ表示が消えた後のタイミング（4.5秒後）で確実に夜フェーズへ移行する
         setTimeout(() => { changePhase("NIGHT"); }, 4500);
+    }
+
+    function triggerGameOver(title, body, winnerSide) {
+        currentPhase = "END";
+        if (countdownInterval) clearInterval(countdownInterval);
+        
+        handleReceivedData({ type: "GAME_OVER", title: title, body: body, winnerSide: winnerSide }, null);
+        sendDataToAll({ type: "GAME_OVER", title: title, body: body, winnerSide: winnerSide });
     }
 
     function checkVictoryConditions(lastTitle, lastMsg, executedRole) {
         if (!isHost) return false;
 
-        // 1. テルテルの勝利チェック (投票で追放された役職がテルテルだった場合)
         if (currentPhase === "VOTE" && executedRole === "テルテル") {
-            currentPhase = "END";
-            if (countdownInterval) clearInterval(countdownInterval);
             setTimeout(() => {
-                sendDataToAll({ type: "GAME_OVER", title: "【天界震撼】", body: "テルテル陣営の単独勝利！ 綺麗に吊られました！", winnerSide: "テルテル" });
+                triggerGameOver("【天界震撼】", "テルテル陣営の単独勝利！ 綺麗に吊られました！", "テルテル");
             }, 1500);
             return true;
         }
@@ -618,18 +631,14 @@
         const humanCount = playerList.filter(p => p.role !== "人狼" && p.alive).length;
         
         if (wolfCount === 0) {
-            currentPhase = "END";
-            if (countdownInterval) clearInterval(countdownInterval);
             setTimeout(() => {
-                sendDataToAll({ type: "GAME_OVER", title: "【聖戦決着】", body: "市民陣営の勝利！ 世界に光が戻った！", winnerSide: "市民" });
+                triggerGameOver("【聖戦決着】", "市民陣営の勝利！ 世界に光が戻った！", "市民");
             }, 1500);
             return true;
         }
         if (wolfCount >= humanCount) {
-            currentPhase = "END";
-            if (countdownInterval) clearInterval(countdownInterval);
             setTimeout(() => {
-                sendDataToAll({ type: "GAME_OVER", title: "【終焉の刻】", body: "人狼陣営の勝利！ 世界は闇に包まれた…", winnerSide: "人狼" });
+                triggerGameOver("【終焉の刻】", "人狼陣営の勝利！ 世界は闇に包まれた…", "人狼");
             }, 1500);
             return true;
         }
