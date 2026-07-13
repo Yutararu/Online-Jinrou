@@ -2,125 +2,169 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>リアルタイム探索・密談人狼</title>
+    <title>幻想世界の探索・密談人狼RPG</title>
     <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
     <style>
-        body { font-family: sans-serif; margin: 0; padding: 20px; display: flex; justify-content: center; color: #e0e0e0; transition: background 0.3s; }
-        body.bg-lobby { background-color: #0f111a; }
-        body.bg-day { background-color: #1a1c24; }
-        body.bg-night { background-color: #05050a; }
+        body { font-family: 'Helvetica Neue', Arial, sans-serif; margin: 0; padding: 20px; display: flex; justify-content: center; color: #333; transition: background 0.5s, color 0.5s; }
+        
+        /* ファンタジー風の背景デザイン */
+        body.bg-lobby { background: linear-gradient(135deg, #1a1c29 0%, #283545 100%); color: #e0e6ed; }
+        body.bg-day { background: linear-gradient(135deg, #e6f7ff 0%, #fff7e6 100%); color: #2c3e50; }
+        body.bg-night { background: linear-gradient(135deg, #0b0d19 0%, #161224 100%); color: #a0aab8; }
 
-        .container { background: #1f2330; padding: 25px; border-radius: 12px; width: 100%; max-width: 600px; border: 1px solid #2f364d; }
-        h2 { text-align: center; margin-top: 0; color: #00ffff; }
-        #timer-display { text-align: center; font-size: 1.3rem; font-weight: bold; color: #ff9f43; margin-bottom: 15px; display: none; }
+        .container { background: rgba(255, 255, 255, 0.95); padding: 25px; border-radius: 16px; width: 100%; max-width: 630px; box-shadow: 0 10px 30px rgba(0,0,0,0.15); border: 2px solid #d4af37; transition: background 0.5s; }
+        body.bg-lobby .container { background: #202636; border-color: #4a5a80; }
+        body.bg-night .container { background: #131722; border-color: #2e1f4d; color: #b0bad0; }
+
+        h2 { text-align: center; margin-top: 0; color: #b8860b; font-size: 1.8rem; text-shadow: 1px 1px 2px rgba(0,0,0,0.1); }
+        body.bg-lobby h2 { color: #5dade2; }
+        body.bg-night h2 { color: #9b59b6; }
+
+        #timer-display { text-align: center; font-size: 1.4rem; font-weight: bold; color: #e67e22; margin-bottom: 15px; display: none; background: rgba(230,126,34,0.1); padding: 8px; border-radius: 8px; }
+        
         .mode-selection { display: flex; gap: 15px; margin-bottom: 20px; }
-        .btn-mode { flex: 1; padding: 12px; background: #2a2f45; color: white; border: 1px solid #414a6b; border-radius: 6px; cursor: pointer; }
-        .btn-mode.active-host { background: #2eb872; }
-        .btn-mode.active-join { background: #00a8ff; }
-        .setup-section { padding: 15px; border-radius: 6px; margin-bottom: 15px; display: none; background: #262b3d; }
-        .form-group { margin-bottom: 10px; }
-        .form-group label { display: block; font-size: 0.85rem; color: #aaa; margin-bottom: 5px; }
-        .form-group-checkbox { margin-bottom: 15px; display: flex; align-items: center; gap: 8px; }
-        .form-group-checkbox input { width: 18px; height: 18px; cursor: pointer; }
-        input[type="text"] { width: 100%; padding: 10px; background: #151821; color: #fff; border: 1px solid #414a6b; border-radius: 6px; box-sizing: border-box; }
-        .btn-action { width: 100%; padding: 12px; border: none; color: white; border-radius: 6px; cursor: pointer; font-weight: bold; }
-        #btn-start-host { background: #2eb872; }
-        #btn-start-join { background: #00a8ff; }
-        #btn-game-control { background: #ff9f43; display: none; margin-bottom: 10px; }
-        #btn-reset-game { background: #414a6b; display: none; margin-bottom: 10px; }
+        .btn-mode { flex: 1; padding: 12px; background: #e2e7f0; color: #475569; border: 2px solid #cbd5e1; border-radius: 8px; cursor: pointer; font-weight: bold; transition: all 0.2s; }
+        body.bg-lobby .btn-mode { background: #2d3748; color: #cbd5e1; border-color: #4a5568; }
+        .btn-mode.active-host { background: #27ae60 !important; color: white !important; border-color: #219653; }
+        .btn-mode.active-join { background: #2980b9 !important; color: white !important; border-color: #1f6696; }
+        
+        .setup-section { padding: 20px; border-radius: 8px; margin-bottom: 15px; display: none; background: #f8fafc; border: 1px solid #e2e8f0; }
+        body.bg-lobby .setup-section { background: #2d3748; border-color: #4a5568; }
+        
+        .form-group { margin-bottom: 12px; }
+        .form-group label { display: block; font-size: 0.9rem; font-weight: bold; margin-bottom: 5px; }
+        .form-group-checkbox { margin-bottom: 15px; display: flex; align-items: center; gap: 10px; }
+        .form-group-checkbox input { width: 20px; height: 20px; cursor: pointer; }
+        
+        input[type="text"] { width: 100%; padding: 12px; background: #fff; color: #333; border: 2px solid #cbd5e1; border-radius: 8px; box-sizing: border-box; font-size: 1rem; }
+        body.bg-lobby input[type="text"] { background: #1a202c; color: #fff; border-color: #4a5568; }
+        body.bg-night input[type="text"] { background: #1c2333; color: #fff; border-color: #3b465e; }
 
-        .area-container { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 15px 0; display: none; }
-        .area-card { background: #262b3d; border: 2px solid #414a6b; border-radius: 6px; padding: 10px; text-align: center; cursor: pointer; }
-        .area-card.active { border-color: #00ffff; background: #2a3b5c; }
-        .player-badges { font-size: 0.8rem; color: #aaa; margin-top: 5px; }
+        .btn-action { width: 100%; padding: 14px; border: none; color: white; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 1.1rem; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        #btn-start-host { background: #27ae60; }
+        #btn-start-join { background: #2980b9; }
+        #btn-game-control { background: #f39c12; display: none; margin-bottom: 10px; }
+        #btn-reset-game { background: #7f8c8d; display: none; margin-bottom: 10px; }
 
-        .loading-overlay { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.8); z-index: 10000; justify-content: center; align-items: center; font-size: 1.8rem; color: #00ffff; }
+        /* エリア選択カードのデザイン */
+        .area-container { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 20px 0; display: none; }
+        .area-card { background: #ffffff; border: 2px solid #b8860b; border-radius: 10px; padding: 12px; text-align: center; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.05); transition: transform 0.2s, background 0.2s; }
+        .area-card:hover { transform: translateY(-2px); }
+        .area-card.active { border-color: #e74c3c; background: #fff5f5; box-shadow: 0 0 12px rgba(231,76,60,0.3); }
+        .area-card h4 { margin: 0 0 6px 0; color: #8b6508; font-size: 1.05rem; }
+        .area-card.active h4 { color: #c0392b; }
+        .player-badges { font-size: 0.85rem; color: #666; font-style: italic; background: rgba(0,0,0,0.04); padding: 4px; border-radius: 4px; min-height: 18px; }
 
-        .action-panel { background: rgba(255,159,67,0.1); border: 1px solid #ff9f43; padding: 12px; border-radius: 6px; margin-bottom: 15px; display: none; text-align: center; }
-        .action-panel select { padding: 8px; background: #151821; color: white; border: 1px solid #414a6b; border-radius: 4px; }
-        #main-chat-log { width: 100%; box-sizing: border-box; padding: 10px; border-radius: 6px; background: #151821; color: #e0e0e0; border: 1px solid #2f364d; resize: none; }
+        .loading-overlay { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(255,255,255,0.85); z-index: 10000; justify-content: center; align-items: center; font-size: 2rem; font-weight: bold; color: #d35400; }
+        body.bg-night .loading-overlay { background: rgba(0,0,0,0.85); color: #9b59b6; }
+
+        .action-panel { background: rgba(243,156,18,0.15); border: 2px dashed #f39c12; padding: 15px; border-radius: 8px; margin-bottom: 15px; display: none; text-align: center; }
+        .action-panel select { padding: 10px; background: #fff; color: #333; border: 2px solid #f39c12; border-radius: 6px; font-size: 1rem; }
+        body.bg-night .action-panel select { background: #1a202c; color: #fff; }
+
+        /* チャット周り */
+        .chat-section h4 { margin: 10px 0 5px 0; font-size: 1.1rem; }
+        #main-chat-log { width: 100%; box-sizing: border-box; padding: 12px; border-radius: 8px; background: #ffffff; color: #333; border: 2px solid #cbd5e1; font-size: 0.95rem; line-height: 1.4; resize: none; }
+        body.bg-lobby #main-chat-log { background: #1a202c; color: #e2e8f0; border-color: #4a5568; }
+        body.bg-night #main-chat-log { background: #161a24; color: #cbd5e1; border-color: #2e384e; }
+        
         .input-area { display: flex; gap: 8px; margin-top: 10px; }
-        .input-area input { flex-grow: 1; padding: 10px; background: #151821; border: 1px solid #2f364d; color: white; border-radius: 6px; }
-        .input-area button { padding: 0 20px; background: #ff4757; border: none; color: white; font-weight: bold; border-radius: 6px; cursor: pointer; }
+        .input-area input { flex-grow: 1; }
+        .input-area button { padding: 0 24px; background: #e74c3c; border: none; color: white; font-weight: bold; border-radius: 8px; cursor: pointer; font-size: 1rem; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
 
-        .full-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 9999; display: flex; flex-direction: column; justify-content: center; align-items: center; background: rgba(0,0,0,0.9); display: none; }
-        .overlay-title { color: #aaa; font-size: 1.2rem; }
-        .overlay-role { font-size: 2.5rem; font-weight: bold; margin-top: 10px; }
-        .citizen-color { color: #2eb872; }
-        .wolf-color { color: #ff4757; }
+        /* 役職説明ポップアップ */
+        .full-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 9999; display: flex; flex-direction: column; justify-content: center; align-items: center; background: rgba(10, 15, 28, 0.95); display: none; text-align: center; padding: 20px; box-sizing: border-box; }
+        .overlay-title { color: #f1c40f; font-size: 1.5rem; letter-spacing: 2px; text-shadow: 0 0 10px rgba(241,196,15,0.5); }
+        .overlay-role { font-size: 3rem; font-weight: bold; margin-top: 15px; animation: pulse 1s infinite alternate; }
+        .overlay-desc { color: #cbd5e1; max-width: 500px; margin-top: 20px; font-size: 1.1rem; line-height: 1.6; background: rgba(255,255,255,0.05); padding: 15px; border-radius: 8px; border: 1px solid #3b4252; }
+        .citizen-color { color: #2ecc71; text-shadow: 0 0 15px rgba(46,204,113,0.4); }
+        .wolf-color { color: #e74c3c; text-shadow: 0 0 15px rgba(231,76,60,0.4); }
+
+        @keyframes pulse { from { transform: scale(0.98); } to { transform: scale(1.02); } }
     </style>
 </head>
 <body class="bg-lobby">
 
 <div id="overlay" class="full-overlay">
-    <div class="overlay-title" id="overlay-title-text">通知</div>
+    <div class="overlay-title" id="overlay-title-text">[神々の託宣]</div>
     <div class="overlay-role" id="overlay-role-text">役職</div>
+    <div class="overlay-desc" id="overlay-desc-text">説明文がここに表示されます。</div>
 </div>
 
-<div id="move-loading" class="loading-overlay">移動中...</div>
+<div id="move-loading" class="loading-overlay">旅の扉を通過中...</div>
 
 <div class="container">
-    <h2>リアルタイム探索・密談人狼</h2>
+    <h2>幻想世界の探索・密談人狼RPG</h2>
     <div id="timer-display">残り時間: --秒</div>
 
     <div class="mode-selection" id="mode-select-area">
-        <button class="btn-mode" id="choose-host">部屋を作る</button>
-        <button class="btn-mode" id="choose-join">部屋に参加する</button>
+        <button class="btn-mode" id="choose-host">新世界を創る（ホスト）</button>
+        <button class="btn-mode" id="choose-join">異世界へ赴く（参加）</button>
     </div>
 
     <div class="setup-section" id="host-setup-panel">
-        <div class="form-group"><label>名前</label><input type="text" id="host-name" placeholder="例: GM"></div>
-        <div class="form-group"><label>部屋ID</label><input type="text" id="host-room-id" placeholder="例: secret-room"></div>
+        <div class="form-group"><label>冒険者の名前</label><input type="text" id="host-name" placeholder="例: 勇者GM"></div>
+        <div class="form-group"><label>世界識別コード (部屋ID)</label><input type="text" id="host-room-id" placeholder="例: fantasy-room"></div>
         <div class="form-group-checkbox">
             <input type="checkbox" id="host-use-bots" checked>
-            <label for="host-use-bots" style="cursor:pointer; font-size:0.9rem;">練習用ボットを3人追加する</label>
+            <label for="host-use-bots" style="cursor:pointer; font-size:0.95rem;">幻影のボットを3人召喚する</label>
         </div>
-        <button id="btn-start-host" class="btn-action">部屋を開く</button>
+        <button id="btn-start-host" class="btn-action">ゲートを開く</button>
     </div>
 
     <div class="setup-section" id="join-setup-panel">
-        <div class="form-group"><label>名前</label><input type="text" id="join-name" placeholder="例: プレイヤーA"></div>
-        <div class="form-group"><label>部屋ID</label><input type="text" id="join-target-id" placeholder="例: secret-room"></div>
-        <button id="btn-start-join" class="btn-action">参加する</button>
+        <div class="form-group"><label>冒険者の名前</label><input type="text" id="join-name" placeholder="例: 戦士A"></div>
+        <div class="form-group"><label>世界識別コード (部屋ID)</label><input type="text" id="join-target-id" placeholder="例: fantasy-room"></div>
+        <button id="btn-start-join" class="btn-action">世界へ飛び込む</button>
     </div>
 
-    <button id="btn-game-control" class="btn-action">ゲームを開始する</button>
-    <button id="btn-reset-game" class="btn-action">ロビーに戻る</button>
+    <button id="btn-game-control" class="btn-action">儀式を開始（ゲーム開始）</button>
+    <button id="btn-reset-game" class="btn-action">始まりの街に戻る</button>
 
-    <p>状態: <span id="status-text">モードを選択してください。</span></p>
+    <p>現在の王記: <span id="status-text">旅の準備を整えてください。</span></p>
 
+    <!-- エリア選択 -->
     <div class="area-container" id="area-selector-ui">
-        <div class="area-card" id="card-square" onclick="selectArea('中央広場')"><h4>中央広場</h4><div class="player-badges" id="badge-square"></div></div>
-        <div class="area-card" id="card-discussion" onclick="selectArea('議論場')"><h4>議論場</h4><div class="player-badges" id="badge-discussion"></div></div>
-        <div class="area-card" id="card-mansion" onclick="selectArea('占いの館')"><h4>占いの館</h4><div class="player-badges" id="badge-mansion"></div></div>
-        <div class="area-card" id="card-study" onclick="selectArea('書斎')"><h4>書斎</h4><div class="player-badges" id="badge-study"></div></div>
-        <div class="area-card" id="card-armory" onclick="selectArea('武器庫')"><h4>武器庫</h4><div class="player-badges" id="badge-armory"></div></div>
-        <div class="area-card" id="card-alley" onclick="selectArea('裏路地')"><h4>裏路地</h4><div class="player-badges" id="badge-alley"></div></div>
+        <div class="area-card" id="card-square" onclick="selectArea('聖なる大広場')"><h4>聖なる大広場</h4><div class="player-badges" id="badge-square"></div></div>
+        <div class="area-card" id="card-discussion" onclick="selectArea('円卓の議場')"><h4>円卓の議場</h4><div class="player-badges" id="badge-discussion"></div></div>
+        <div class="area-card" id="card-mansion" onclick="selectArea('星詠みの館')"><h4>星詠みの館</h4><div class="player-badges" id="badge-mansion"></div></div>
+        <div class="area-card" id="card-study" onclick="selectArea('大賢者の書庫')"><h4>大賢者の書庫</h4><div class="player-badges" id="badge-study"></div></div>
+        <div class="area-card" id="card-armory" onclick="selectArea('王宮の武器庫')"><h4>王宮の武器庫</h4><div class="player-badges" id="badge-armory"></div></div>
+        <div class="area-card" id="card-alley" onclick="selectArea('薄暗き裏路地')"><h4>薄暗き裏路地</h4><div class="player-badges" id="badge-alley"></div></div>
     </div>
 
     <div class="action-panel" id="game-action-panel">
-        <span id="action-panel-label">ターゲット: </span>
+        <span id="action-panel-label">対象を選択: </span>
         <select id="action-target-select"></select>
-        <button id="btn-submit-action" style="padding: 5px 10px;">決定</button>
+        <button id="btn-submit-action" style="padding: 6px 12px; font-weight:bold;">詠唱する</button>
     </div>
 
     <div class="chat-section">
-        <h4 id="chat-title">ロビーチャット</h4>
-        <textarea id="main-chat-log" rows="10" readonly></textarea>
+        <h4 id="chat-title">酒場の談話（ロビー）</h4>
+        <textarea id="main-chat-log" rows="11" readonly></textarea>
     </div>
 
     <div class="input-area">
-        <input type="text" id="msg-input" placeholder="メッセージ..." disabled>
+        <input type="text" id="msg-input" placeholder="言葉を紡ぐ..." disabled>
         <button id="btn-send" disabled>送信</button>
     </div>
 </div>
 
 <script>
     let peer = null, connections = [], conn = null, isHost = false;
-    let myName = "", myRole = "", currentPhase = "LOBBY", currentArea = "中央広場", isMoving = false;
-    let playerList = [], lobbyDummies = ["ボットA", "ボットB", "ボットC"]; 
+    let myName = "", myRole = "", currentPhase = "LOBBY", currentArea = "聖なる大広場", isMoving = false;
+    let playerList = [], lobbyDummies = ["幻影ボットA", "幻影ボットB", "幻影ボットC"]; 
     let nightActions = {}, votesReceived = {}, countdownInterval = null;
     let botSeerMemory = {};
+
+    // 役職説明テキストデータ
+    const roleDescriptions = {
+        "市民": "[市民陣営] 特別な力を持たない一般の冒険者。昼の議論で怪しい者をあぶり出し、すべての「人狼」を追放すれば勝利となる！",
+        "人狼": "[人狼陣営] 夜になると魔狼に変身し、誰か1人を襲撃できる。正体を隠して紛れ込み、生存している人狼の数が市民陣営と同数以上になれば勝利！",
+        "占い師": "[市民陣営] 夜の間に、生存者1人を指定して「人狼」か「人間」かを見破る大魔法を使える。市民陣営を勝利へ導く超重要職！",
+        "騎士": "[市民陣営] 夜の間に、自分以外の誰か1人を人狼の襲撃から守ることができる。誰が狙われそうか推理して守り抜け！",
+        "怪盗": "[市民陣営] 最初の夜に、誰か1人の役職をこっそり盗み取ってその役職になり変わる（盗まれた人は市民になる）。攪乱のトリックスター！"
+    };
 
     const chooseHostBtn = document.getElementById('choose-host');
     const chooseJoinBtn = document.getElementById('choose-join');
@@ -139,6 +183,7 @@
     const overlay = document.getElementById('overlay');
     const overlayTitleText = document.getElementById('overlay-title-text');
     const overlayRoleText = document.getElementById('overlay-role-text');
+    const overlayDescText = document.getElementById('overlay-desc-text');
     const gameActionPanel = document.getElementById('game-action-panel');
     const actionPanelLabel = document.getElementById('action-panel-label');
     const actionTargetSelect = document.getElementById('action-target-select');
@@ -151,21 +196,21 @@
         const name = document.getElementById('host-name').value.trim();
         const roomId = document.getElementById('host-room-id').value.trim();
         const useBots = document.getElementById('host-use-bots').checked;
-        if (!name || !roomId) return alert("入力不足");
+        if (!name || !roomId) return alert("名前と世界識別コードを入力してください");
         myName = name;
         peer = new Peer(roomId);
         peer.on('open', (id) => {
             isHost = true;
-            statusText.textContent = `ホスト [部屋ID: ${id}]`;
-            logMain(`[システム] 部屋を作成しました。ID: ${id}`);
+            statusText.textContent = `創造主として顕現中 [世界コード: ${id}]`;
+            logMain(`[システム] 世界が創造されました。コード: ${id}`);
             lockUI();
             btnGameControl.style.display = 'block';
-            playerList.push({ name: myName, role: "市民", alive: true, area: "中央広場", isDummy: false });
+            playerList.push({ name: myName, role: "市民", alive: true, area: "聖なる大広場", isDummy: false });
             
             if (useBots) {
                 lobbyDummies.forEach(d => {
-                    playerList.push({ name: d, role: "市民", alive: true, area: "中央広場", isDummy: true });
-                    logMain(`[入室] ${d} (ボット)`);
+                    playerList.push({ name: d, role: "市民", alive: true, area: "聖なる大広場", isDummy: true });
+                    logMain(`[入室] ${d} (幻影)`);
                 });
             }
         });
@@ -183,13 +228,13 @@
     document.getElementById('btn-start-join').addEventListener('click', () => {
         const name = document.getElementById('join-name').value.trim();
         const targetId = document.getElementById('join-target-id').value.trim();
-        if (!name || !targetId) return alert("入力不足");
+        if (!name || !targetId) return alert("名前と識別コードを入力してください");
         myName = name;
         peer = new Peer();
         peer.on('open', () => {
             conn = peer.connect(targetId);
             conn.on('open', () => {
-                statusText.textContent = `${myName} で参加中`;
+                statusText.textContent = `${myName} として世界の境界に滞在中`;
                 lockUI();
                 conn.send({ type: "JOIN_NAME", name: myName });
             });
@@ -203,28 +248,35 @@
         if (isHost && senderConn) senderConn.playerName = data.name;
         switch(data.type) {
             case "JOIN_NAME":
-                if (isHost) { playerList.push({ name: data.name, role: "市民", alive: true, area: "中央広場", isDummy: false }); logMain(`[入室] ${data.name} さん`); syncAllPlayers(); }
+                if (isHost) { playerList.push({ name: data.name, role: "市民", alive: true, area: "聖なる大広場", isDummy: false }); logMain(`[来訪] ${data.name} 殿`); syncAllPlayers(); }
                 break;
-            case "DUMMY_JOIN_NOTICE": if (!isHost) logMain(`[入室] ${data.name} (ボット)`); break;
-            case "START_GAME": playerList = data.players; myRole = playerList.find(p => p.name === myName)?.role || "市民"; showOverlay("ゲーム開始", `役職: ${myRole}`, myRole); break;
+            case "DUMMY_JOIN_NOTICE": if (!isHost) logMain(`[来訪] ${data.name} (幻影)`); break;
+            case "START_GAME": 
+                playerList = data.players; 
+                myRole = playerList.find(p => p.name === myName)?.role || "市民"; 
+                showOverlay("[運命の刻]", `あなたは【${myRole}】です`, myRole); 
+                break;
             case "SYNC_PLAYERS": playerList = data.players; updateAreaUIBadges(); break;
             case "MOVE_AREA": if (isHost) { let p = playerList.find(pl => pl.name === data.name); if (p) p.area = data.area; syncAllPlayers(); } break;
             case "PHASE_CHANGE": playerList = data.players; myRole = playerList.find(p => p.name === myName)?.role || myRole; executePhaseTransition(data.phase); break;
-            case "TIMER_SYNC": timerDisplay.textContent = `残り時間: ${data.time}秒`; break;
+            case "TIMER_SYNC": timerDisplay.textContent = `刻限まであと: ${data.time}秒`; break;
             case "CHAT_BROADCAST": if (shouldReceiveMessage(data)) logMain(`[${data.area}] ${data.sender}: ${data.msg}`); break;
             case "SUBMIT_NIGHT_ACTION":
                 if (isHost) {
                     nightActions[data.sender] = data.target;
                     if (data.role === "占い師") {
                         let t = playerList.find(p => p.name === data.target);
-                        let res = (t.role === "人狼" || t.role === "裏切り者") ? "人狼" : "人間";
-                        senderConn.send({ type: "PRIVATE_ALERT", title: "占い結果", body: `${data.target} は [ ${res} ]` });
+                        let res = (t.role === "人狼") ? "人狼" : "人間";
+                        senderConn.send({ type: "PRIVATE_ALERT", title: "[星詠みの結果]", body: `${data.target} の魂は【 ${res} 】の兆候を示している…`, targetName: data.sender });
                     }
                     evaluateNightActions();
                 }
                 break;
             case "SUBMIT_VOTE": if (isHost) { votesReceived[data.sender] = data.target; evaluateVotes(); } break;
-            case "PRIVATE_ALERT": showOverlay(data.title, data.body); logMain(`[通知] ${data.title}: ${data.body}`); break;
+            case "PRIVATE_ALERT": 
+                showOverlay(data.title, data.body, myRole); 
+                logMain(`[秘匿託宣] ${data.title}: ${data.body}`); 
+                break;
             case "SYSTEM_LOG": logMain(data.msg); break;
         }
     }
@@ -232,9 +284,9 @@
     function shouldReceiveMessage(data) {
         let me = playerList.find(p => p.name === myName);
         if (!me) return false;
-        if (!me.alive && data.area === "幽霊") return true;
+        if (!me.alive && data.area === "精霊界") return true;
         if (!me.alive) return false;
-        if (data.area === "人狼会議" && myRole === "人狼") return true;
+        if (data.area === "魔族のテレパシー" && myRole === "人狼") return true;
         return me.area === data.area && currentPhase === data.phase;
     }
 
@@ -244,13 +296,15 @@
         setTimeout(() => {
             currentArea = areaName; isMoving = false; moveLoading.style.display = 'none';
             document.querySelectorAll('.area-card').forEach(c => c.classList.remove('active'));
-            const cardMap = { "中央広場": "card-square", "議論場": "card-discussion", "占いの館": "card-mansion", "書斎": "card-study", "武器庫": "card-armory", "裏路地": "card-alley" };
+            
+            const cardMap = { "聖なる大広場": "card-square", "円卓の議場": "card-discussion", "星詠みの館": "card-mansion", "大賢者の書庫": "card-study", "王宮の武器庫": "card-armory", "薄暗き裏路地": "card-alley" };
             document.getElementById(cardMap[areaName])?.classList.add('active');
-            chatTitle.textContent = `${currentArea} のチャット`;
-            mainChat.value = `--- ${currentArea} に移動しました ---\n`;
+            
+            chatTitle.textContent = `${currentArea} の思念`;
+            mainChat.value = `=== 【${currentArea}】に足を踏み入れました ===\n`;
             if (isHost) { let me = playerList.find(p => p.name === myName); if (me) me.area = currentArea; syncAllPlayers(); }
             else { if (conn) conn.send({ type: "MOVE_AREA", name: myName, area: currentArea }); }
-        }, 3000);
+        }, 1500);
     }
 
     btnSend.addEventListener('click', sendMessage);
@@ -258,8 +312,8 @@
     function sendMessage() {
         const txt = msgInput.value.trim(); if (!txt) return;
         let areaContext = currentArea;
-        if (!playerList.find(p => p.name === myName)?.alive) areaContext = "幽霊";
-        else if (currentPhase === "NIGHT" && myRole === "人狼") areaContext = "人狼会議";
+        if (!playerList.find(p => p.name === myName)?.alive) areaContext = "精霊界";
+        else if (currentPhase === "NIGHT" && myRole === "人狼") areaContext = "魔族のテレパシー";
         logMain(`[${areaContext}] あなた: ${txt}`);
         sendDataToAll({ type: "CHAT_BROADCAST", sender: myName, msg: txt, area: areaContext, phase: currentPhase });
         msgInput.value = "";
@@ -267,38 +321,32 @@
 
     btnGameControl.addEventListener('click', () => {
         if (!isHost || currentPhase !== "LOBBY") return;
-        if (playerList.length < 3) return alert("ゲームを開始するには最低3人必要です（ボット含め）");
+        if (playerList.length < 3) return alert("儀式には最低3人の魂が必要です（ボット含む）");
         
-        // --- 人数に応じた役職割り当てアルゴリズム ---
         let roles = [];
         const count = playerList.length;
-        if (count === 3) {
-            roles = ["人狼", "占い師", "怪盗"];
-        } else if (count === 4) {
-            roles = ["人狼", "占い師", "怪盗", "市民"];
-        } else if (count === 5) {
-            roles = ["人狼", "占い師", "騎士", "怪盗", "市民"];
-        } else {
+        if (count === 3) roles = ["人狼", "占い師", "怪盗"];
+        else if (count === 4) roles = ["人狼", "占い師", "怪盗", "市民"];
+        else if (count === 5) roles = ["人狼", "占い師", "騎士", "怪盗", "市民"];
+        else {
             roles = ["人狼", "人狼", "占い師", "騎士", "怪盗"];
-            while (roles.length < count) {
-                roles.push("市民");
-            }
+            while (roles.length < count) roles.push("市民");
         }
         
         roles.sort(() => Math.random() - 0.5);
-        playerList.forEach((p, i) => { p.role = roles[i]; p.alive = true; p.area = "中央広場"; });
+        playerList.forEach((p, i) => { p.role = roles[i]; p.alive = true; p.area = "聖なる大広場"; });
         sendDataToAll({ type: "START_GAME", players: playerList });
         myRole = playerList.find(p => p.name === myName).role;
-        showOverlay("ゲーム開始", `役職: ${myRole}`, myRole);
+        showOverlay("[運命の刻]", `あなたは【${myRole}】です`, myRole);
         btnGameControl.style.display = 'none'; btnResetGame.style.display = 'block';
-        setTimeout(() => { changePhase("NIGHT"); }, 3000);
+        setTimeout(() => { changePhase("NIGHT"); }, 4000);
     });
 
     btnResetGame.addEventListener('click', () => { if (isHost) location.reload(); });
 
     function changePhase(nextPhase) {
         currentPhase = nextPhase;
-        if (nextPhase === "NIGHT") { nightActions = {}; playerList.forEach(p => p.area = "中央広場"); }
+        if (nextPhase === "NIGHT") { nightActions = {}; playerList.forEach(p => p.area = "聖なる大広場"); }
         else if (nextPhase === "DAY") { votesReceived = {}; }
         sendDataToAll({ type: "PHASE_CHANGE", phase: nextPhase, players: playerList });
         executePhaseTransition(nextPhase);
@@ -306,9 +354,9 @@
 
     function startDayTimer() {
         if (countdownInterval) clearInterval(countdownInterval);
-        let timeLeft = 60; timerDisplay.style.display = 'block'; timerDisplay.textContent = `残り時間: ${timeLeft}秒`;
+        let timeLeft = 60; timerDisplay.style.display = 'block'; timerDisplay.textContent = `刻限まであと: ${timeLeft}秒`;
         countdownInterval = setInterval(() => {
-            timeLeft--; timerDisplay.textContent = `残り時間: ${timeLeft}秒`;
+            timeLeft--; timerDisplay.textContent = `刻限まであと: ${timeLeft}秒`;
             sendDataToAll({ type: "TIMER_SYNC", time: timeLeft });
             if (timeLeft <= 0) { clearInterval(countdownInterval); if (isHost) changePhase("VOTE"); }
         }, 1000);
@@ -320,35 +368,36 @@
         if (countdownInterval) clearInterval(countdownInterval);
         
         let me = playerList.find(p => p.name === myName);
-        if (!me || !me.alive) { statusText.textContent = "死亡しました（観戦・幽霊チャット可）"; document.body.className = "bg-night"; areaUI.style.display = 'none'; chatTitle.textContent = "幽霊チャット"; return; }
+        if (!me || !me.alive) { statusText.textContent = "あなたは肉体を失い、精霊（観戦）となりました"; document.body.className = "bg-night"; areaUI.style.display = 'none'; chatTitle.textContent = "精霊界のつぶやき"; return; }
 
         if (phase === "NIGHT") {
             document.body.className = "bg-night"; areaUI.style.display = 'none';
-            showOverlay("夜フェーズ", "役職行動を選択してください", "人狼");
-            chatTitle.textContent = myRole === "人狼" ? "人狼チャット" : "夜間待機";
+            showOverlay("[常闇の夜フェーズ]", "闇に紛れ、能力を発動してください", "人狼");
+            chatTitle.textContent = myRole === "人狼" ? "魔族のテレパシー（人狼）" : "深き眠りの中…";
             mainChat.value = "";
-            if (["人狼", "占い師", "騎士", "怪盗"].includes(myRole)) activateActionUI(`${myRole}の行動先: `, false);
+            
+            if (["人狼", "占い師", "騎士", "怪盗"].includes(myRole)) activateActionUI(`【${myRole}の能力】対象を選択してください: `, false);
+            
             if (isHost) {
                 setTimeout(() => { 
                     executeBotNightActions(); 
-                    // ボットなしで誰も夜動く役職がいない、または全員が選択し終えているかのチェックを噛ませる
                     evaluateNightActions(); 
                 }, 2000);
             }
         } 
         else if (phase === "DAY") {
             document.body.className = "bg-day"; areaUI.style.display = 'grid';
-            showOverlay("朝フェーズ", "自由に移動して密談してください", "市民");
-            statusText.textContent = "昼フェーズ：エリア移動と限定チャットが可能";
-            currentArea = "中央広場"; chatTitle.textContent = `${currentArea} のチャット`; mainChat.value = "";
+            showOverlay("[陽光の昼フェーズ]", "世界の各地へ移動し、密談を交わしてください", "市民");
+            statusText.textContent = "白昼：各エリアを選択して移動し、思念を交わせ！";
+            currentArea = "聖なる大広場"; chatTitle.textContent = `${currentArea} の思念`; mainChat.value = "";
             document.querySelectorAll('.area-card').forEach(c => c.classList.remove('active'));
             document.getElementById('card-square')?.classList.add('active');
             if (isHost) startDayTimer();
         }
         else if (phase === "VOTE") {
             document.body.className = "bg-night"; areaUI.style.display = 'none';
-            chatTitle.textContent = "投票フェーズ";
-            activateActionUI("追放投票先: ", true);
+            chatTitle.textContent = "追放の断罪の儀";
+            activateActionUI("最も邪悪だと感じる者に清き一票を: ", true);
             if (isHost) setTimeout(() => { executeBotVotes(); }, 2000);
         }
     }
@@ -368,7 +417,16 @@
         const target = actionTargetSelect.value; if (!target) return;
         btnSubmitAction.disabled = true; gameActionPanel.style.display = 'none';
         if (currentPhase === "NIGHT") {
-            if (isHost) { nightActions[myName] = target; evaluateNightActions(); } 
+            if (isHost) { 
+                nightActions[myName] = target; 
+                if (myRole === "占い師") {
+                    let t = playerList.find(p => p.name === target);
+                    let res = (t.role === "人狼") ? "人狼" : "人間";
+                    showOverlay("[星詠みの結果]", `${target} の魂は【 ${res} 】の兆候を示している…`, myRole);
+                    logMain(`[秘匿託宣] 星詠みの結果: ${target} は [ ${res} ]`);
+                }
+                evaluateNightActions(); 
+            } 
             else { if (conn) conn.send({ type: "SUBMIT_NIGHT_ACTION", role: myRole, target: target }); }
         } else if (currentPhase === "VOTE") {
             if (isHost) { votesReceived[myName] = target; evaluateVotes(); } 
@@ -381,13 +439,7 @@
         const requiredActators = playerList.filter(p => p.alive && ["人狼", "占い師", "怪盗", "騎士"].includes(p.role));
         const currentActionCount = Object.keys(nightActions).length;
 
-        // 【セーフティ】動くべき役職が生存していない（市民だけなど）なら即座に朝へ
-        if (requiredActators.length === 0) {
-            proceedToDay();
-            return;
-        }
-
-        if (currentActionCount >= requiredActators.length) {
+        if (requiredActators.length === 0 || currentActionCount >= requiredActators.length) {
             proceedToDay();
         }
     }
@@ -399,8 +451,8 @@
             let victim = playerList.find(p => p.name === rTargetName);
             if (victim) {
                 let stolen = victim.role; victim.role = "市民"; robber.role = stolen;
-                sendPrivateNotice(robber.name, "怪盗結果", `${victim.name} の役職 [ ${stolen} ] を盗みました`);
-                sendPrivateNotice(victim.name, "盗難発生", "役職を盗まれ市民になりました");
+                sendPrivateNotice(robber.name, "怪盗の早業", `${victim.name} の職能 [ ${stolen} ] を奪い取りました！`);
+                sendPrivateNotice(victim.name, "魔力泥棒", "職能が何者かに盗まれ、ただの市民になりました…");
             }
         }
 
@@ -409,13 +461,13 @@
         let wTarget = wolf ? nightActions[wolf.name] : null;
         let kTarget = knight ? nightActions[knight.name] : null;
 
-        let report = "[朝の報告] 昨晩の犠牲者はありませんでした。";
+        let report = "【夜明けの告解】昨晩、世界を揺るがす悲劇は起きなかった。皆健在だ。";
         if (wTarget) {
             if (kTarget && wTarget === kTarget) {
-                report = "[朝の報告] 騎士の護衛により襲撃は防がれました。";
+                report = "【夜明けの告解】人狼の牙が襲いかかるも、高潔な騎士の盾がそれを弾き返した！";
             } else {
                 let vic = playerList.find(p => p.name === wTarget);
-                if (vic) { vic.alive = false; report = `[朝の報告] 昨晩 ${vic.name} さんが襲撃され死亡しました。`; }
+                if (vic) { vic.alive = false; report = `【夜明けの告解】無念！ 昨晩 ${vic.name} 殿が冥府の魔狼に襲われ、命を落としました。`; }
             }
         }
 
@@ -434,7 +486,7 @@
             let executionTarget = null, maxVotes = -1;
             for (let name in tally) { if (tally[name] > maxVotes) { maxVotes = tally[name]; executionTarget = name; } }
 
-            let msg = `[投票結果] 投票により ${executionTarget} さんが追放されました。`;
+            let msg = `【断罪の結末】審判により、${executionTarget} 殿が世界の秩序のために聖水で追放されました。`;
             let victim = playerList.find(p => p.name === executionTarget);
             if (victim) victim.alive = false;
 
@@ -447,8 +499,8 @@
     function checkVictoryConditions() {
         const wolfCount = playerList.filter(p => p.role === "人狼" && p.alive).length;
         const humanCount = playerList.filter(p => p.role !== "人狼" && p.alive).length;
-        if (wolfCount === 0) { sendDataToAll({ type: "PRIVATE_ALERT", title: "ゲーム終了", body: "市民陣営の勝利！" }); return true; }
-        if (wolfCount >= humanCount) { sendDataToAll({ type: "PRIVATE_ALERT", title: "ゲーム終了", body: "人狼陣営の勝利！" }); return true; }
+        if (wolfCount === 0) { sendDataToAll({ type: "PRIVATE_ALERT", title: "[聖戦決着]", body: "市民陣営の勝利！ 闇の霧は晴れ、世界に光が戻った！" }); return true; }
+        if (wolfCount >= humanCount) { sendDataToAll({ type: "PRIVATE_ALERT", title: "[終焉の刻]", body: "人狼陣営の勝利！ 世界は人狼の王に支配された…" }); return true; }
         return false;
     }
 
@@ -462,7 +514,7 @@
             if (["人狼", "騎士", "怪盗"].includes(p.role)) nightActions[p.name] = rTarget;
             if (p.role === "占い師") {
                 nightActions[p.name] = rTarget;
-                let isW = ["人狼", "裏切り者"].includes(playerList.find(t => t.name === rTarget).role);
+                let isW = playerList.find(t => t.name === rTarget).role === "人狼";
                 botSeerMemory[p.name] = { target: rTarget, isWolf: isW };
             }
         });
@@ -488,24 +540,35 @@
     function syncAllPlayers() { if (isHost) sendDataToAll({ type: "SYNC_PLAYERS", players: playerList }); updateAreaUIBadges(); }
     function sendDataToAll(data) { if (isHost) { connections.forEach(c => { if (c.open) c.send(data); }); } else { if (conn?.open) conn.send(data); } }
     function sendPrivateNotice(targetName, title, body) {
-        if (myName === targetName) showOverlay(title, body);
+        if (myName === targetName) showOverlay(title, body, myRole);
         else { let c = connections.find(cn => cn.playerName === targetName); if (c?.open) c.send({ type: "PRIVATE_ALERT", title: title, body: body }); }
     }
 
     function updateAreaUIBadges() {
-        const areaIds = { "中央広場": "badge-square", "議論場": "badge-discussion", "占いの館": "badge-mansion", "書斎": "badge-study", "武器庫": "badge-armory", "裏路地": "badge-alley" };
+        const areaIds = { "聖なる大広場": "badge-square", "円卓の議場": "badge-discussion", "星詠みの館": "badge-mansion", "大賢者の書庫": "badge-study", "王宮の武器庫": "badge-armory", "薄暗き裏路地": "badge-alley" };
         Object.keys(areaIds).forEach(a => {
             let inRoom = playerList.filter(p => p.area === a && p.alive).map(p => p.name);
             let b = document.getElementById(areaIds[a]);
-            if (b) b.textContent = inRoom.length > 0 ? inRoom.join(", ") : "なし";
+            if (b) b.textContent = inRoom.length > 0 ? inRoom.join(", ") : "人影なし";
         });
     }
 
     function logMain(m) { mainChat.value += m + "\n"; mainChat.scrollTop = mainChat.scrollHeight; }
     function showOverlay(title, body, roleStyle = "") {
         overlayTitleText.textContent = title; overlayRoleText.textContent = body;
-        overlayRoleText.className = ["人狼", "裏切り者"].includes(roleStyle) ? "overlay-role wolf-color" : "overlay-role citizen-color";
-        overlay.style.display = 'flex'; setTimeout(() => overlay.style.display = 'none', 3000);
+        
+        let cleanRole = roleStyle;
+        if (body.includes("市民")) cleanRole = "市民";
+        if (body.includes("人狼")) cleanRole = "人狼";
+        if (body.includes("占い師")) cleanRole = "占い師";
+        if (body.includes("騎士")) cleanRole = "騎士";
+        if (body.includes("怪盗")) cleanRole = "怪盗";
+        
+        overlayDescText.textContent = roleDescriptions[cleanRole] || "神々による世界の再構築中…";
+        
+        overlayRoleText.className = ["人狼"].includes(cleanRole) ? "overlay-role wolf-color" : "overlay-role citizen-color";
+        overlay.style.display = 'flex'; 
+        setTimeout(() => overlay.style.display = 'none', 4500);
     }
 </script>
 </body>
