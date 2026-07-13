@@ -157,7 +157,6 @@
     let nightActions = {}, votesReceived = {}, countdownInterval = null;
     let botSeerMemory = {};
 
-    // 役職説明テキストデータ
     const roleDescriptions = {
         "市民": "[市民陣営] 特別な力を持たない一般の冒険者。昼の議論で怪しい者をあぶり出し、すべての「人狼」を追放すれば勝利となる！",
         "人狼": "[人狼陣営] 夜になると魔狼に変身し、誰か1人を襲撃できる。正体を隠して紛れ込み、生存している人狼の数が市民陣営と同数以上になれば勝利！",
@@ -269,10 +268,10 @@
                         let res = (t.role === "人狼") ? "人狼" : "人間";
                         senderConn.send({ type: "PRIVATE_ALERT", title: "[星詠みの結果]", body: `${data.target} の魂は【 ${res} 】の兆候を示している…`, targetName: data.sender });
                     }
-                    evaluateNightActions();
+                    // タイマー同期中なので、全員揃っても30秒経過するまで待つ（または早期切り替え処理を挟む）
                 }
                 break;
-            case "SUBMIT_VOTE": if (isHost) { votesReceived[data.sender] = data.target; evaluateVotes(); } break;
+            case "SUBMIT_VOTE": if (isHost) { votesReceived[data.sender] = data.target; } break;
             case "PRIVATE_ALERT": 
                 showOverlay(data.title, data.body, myRole); 
                 logMain(`[秘匿託宣] ${data.title}: ${data.body}`); 
@@ -352,19 +351,26 @@
         executePhaseTransition(nextPhase);
     }
 
-    function startDayTimer() {
+    // 共通タイマー処理（ホスト専用）
+    function startPhaseTimer(durationSeconds, onTimeoutCallback) {
         if (countdownInterval) clearInterval(countdownInterval);
-        let timeLeft = 60; timerDisplay.style.display = 'block'; timerDisplay.textContent = `刻限まであと: ${timeLeft}秒`;
+        let timeLeft = durationSeconds;
+        timerDisplay.style.display = 'block';
+        timerDisplay.textContent = `刻限まであと: ${timeLeft}秒`;
+        
         countdownInterval = setInterval(() => {
-            timeLeft--; timerDisplay.textContent = `刻限まであと: ${timeLeft}秒`;
+            timeLeft--;
+            timerDisplay.textContent = `刻限まであと: ${timeLeft}秒`;
             sendDataToAll({ type: "TIMER_SYNC", time: timeLeft });
-            if (timeLeft <= 0) { clearInterval(countdownInterval); if (isHost) changePhase("VOTE"); }
+            if (timeLeft <= 0) {
+                clearInterval(countdownInterval);
+                onTimeoutCallback();
+            }
         }, 1000);
     }
 
     function executePhaseTransition(phase) {
         currentPhase = phase; gameActionPanel.style.display = 'none';
-        if (phase !== "DAY") timerDisplay.style.display = 'none';
         if (countdownInterval) clearInterval(countdownInterval);
         
         let me = playerList.find(p => p.name === myName);
@@ -372,17 +378,19 @@
 
         if (phase === "NIGHT") {
             document.body.className = "bg-night"; areaUI.style.display = 'none';
-            showOverlay("[常闇の夜フェーズ]", "闇に紛れ、能力を発動してください", "人狼");
+            showOverlay("[常闇の夜フェーズ]", "闇に紛れ、30秒以内に行動を選択してください", "人狼");
             chatTitle.textContent = myRole === "人狼" ? "魔族のテレパシー（人狼）" : "深き眠りの中…";
             mainChat.value = "";
+            timerDisplay.style.display = 'block';
             
             if (["人狼", "占い師", "騎士", "怪盗"].includes(myRole)) activateActionUI(`【${myRole}の能力】対象を選択してください: `, false);
             
             if (isHost) {
-                setTimeout(() => { 
-                    executeBotNightActions(); 
-                    evaluateNightActions(); 
-                }, 2000);
+                executeBotNightActions(); 
+                // 夜の30秒強制タイマー。時間切れになったら行動していなくても朝にする
+                startPhaseTimer(30, () => {
+                    proceedToDay();
+                });
             }
         } 
         else if (phase === "DAY") {
@@ -392,13 +400,25 @@
             currentArea = "聖なる大広場"; chatTitle.textContent = `${currentArea} の思念`; mainChat.value = "";
             document.querySelectorAll('.area-card').forEach(c => c.classList.remove('active'));
             document.getElementById('card-square')?.classList.add('active');
-            if (isHost) startDayTimer();
+            
+            if (isHost) {
+                startPhaseTimer(60, () => {
+                    changePhase("VOTE");
+                });
+            }
         }
         else if (phase === "VOTE") {
             document.body.className = "bg-night"; areaUI.style.display = 'none';
             chatTitle.textContent = "追放の断罪の儀";
             activateActionUI("最も邪悪だと感じる者に清き一票を: ", true);
-            if (isHost) setTimeout(() => { executeBotVotes(); }, 2000);
+            
+            if (isHost) {
+                executeBotVotes();
+                // 投票も30秒で強制終了
+                startPhaseTimer(30, () => {
+                    evaluateVotes();
+                });
+            }
         }
     }
 
@@ -425,26 +445,17 @@
                     showOverlay("[星詠みの結果]", `${target} の魂は【 ${res} 】の兆候を示している…`, myRole);
                     logMain(`[秘匿託宣] 星詠みの結果: ${target} は [ ${res} ]`);
                 }
-                evaluateNightActions(); 
             } 
             else { if (conn) conn.send({ type: "SUBMIT_NIGHT_ACTION", role: myRole, target: target }); }
         } else if (currentPhase === "VOTE") {
-            if (isHost) { votesReceived[myName] = target; evaluateVotes(); } 
+            if (isHost) { votesReceived[myName] = target; } 
             else { if (conn) conn.send({ type: "SUBMIT_VOTE", sender: myName, target: target }); }
         }
     });
 
-    function evaluateNightActions() {
-        if (currentPhase !== "NIGHT") return;
-        const requiredActators = playerList.filter(p => p.alive && ["人狼", "占い師", "怪盗", "騎士"].includes(p.role));
-        const currentActionCount = Object.keys(nightActions).length;
-
-        if (requiredActators.length === 0 || currentActionCount >= requiredActators.length) {
-            proceedToDay();
-        }
-    }
-
     function proceedToDay() {
+        if (countdownInterval) clearInterval(countdownInterval);
+        
         let robber = playerList.find(p => p.role === "怪盗" && p.alive);
         let rTargetName = robber ? nightActions[robber.name] : null;
         if (robber && rTargetName) {
@@ -477,29 +488,43 @@
     }
 
     function evaluateVotes() {
-        const alivePlayers = playerList.filter(p => p.alive);
-        const currentVoteCount = Object.keys(votesReceived).length;
+        if (countdownInterval) clearInterval(countdownInterval);
+        
+        let tally = {};
+        // 投票しなかったプレイヤーがいた場合のエラーを防ぐデフォルト処理
+        playerList.forEach(p => {
+            if (p.alive) {
+                let target = votesReceived[p.name];
+                // 未投票ならランダムで生存者に投票したことにする
+                if (!target) {
+                    let targets = playerList.filter(t => t.alive);
+                    if (targets.length > 0) target = targets[Math.floor(Math.random() * targets.length)].name;
+                }
+                if (target) tally[target] = (tally[target] || 0) + 1;
+            }
+        });
 
-        if (currentVoteCount >= alivePlayers.length) {
-            let tally = {};
-            Object.values(votesReceived).forEach(t => tally[t] = (tally[t] || 0) + 1);
-            let executionTarget = null, maxVotes = -1;
-            for (let name in tally) { if (tally[name] > maxVotes) { maxVotes = tally[name]; executionTarget = name; } }
+        let executionTarget = null, maxVotes = -1;
+        for (let name in tally) { if (tally[name] > maxVotes) { maxVotes = tally[name]; executionTarget = name; } }
 
-            let msg = `【断罪の結末】審判により、${executionTarget} 殿が世界の秩序のために聖水で追放されました。`;
+        let msg = "【断罪の結末】今回の投票では誰も追放されませんでした。";
+        if (executionTarget) {
             let victim = playerList.find(p => p.name === executionTarget);
-            if (victim) victim.alive = false;
-
-            sendDataToAll({ type: "SYSTEM_LOG", msg: msg });
-            if (checkVictoryConditions()) return;
-            setTimeout(() => { changePhase("NIGHT"); }, 3000);
+            if (victim) {
+                victim.alive = false;
+                msg = `【断罪の結末】審判により、${executionTarget} 殿が世界の秩序のために聖水で追放されました。`;
+            }
         }
+
+        sendDataToAll({ type: "SYSTEM_LOG", msg: msg });
+        if (checkVictoryConditions()) return;
+        setTimeout(() => { changePhase("NIGHT"); }, 3000);
     }
 
     function checkVictoryConditions() {
         const wolfCount = playerList.filter(p => p.role === "人狼" && p.alive).length;
         const humanCount = playerList.filter(p => p.role !== "人狼" && p.alive).length;
-        if (wolfCount === 0) { sendDataToAll({ type: "PRIVATE_ALERT", title: "[聖戦決着]", body: "市民陣営の勝利！ 闇の霧は晴れ、世界に光が戻った！" }); return true; }
+        if (wolfCount === 0) { sendDataToAll({ type: "PRIVATE_ALERT", title: "[聖戦決着]", body: "市民陣営的勝利！ 闇の霧は晴れ、世界に光が戻った！" }); return true; }
         if (wolfCount >= humanCount) { sendDataToAll({ type: "PRIVATE_ALERT", title: "[終焉の刻]", body: "人狼陣営の勝利！ 世界は人狼の王に支配された…" }); return true; }
         return false;
     }
@@ -534,7 +559,6 @@
             }
             votesReceived[p.name] = targetName;
         });
-        evaluateVotes();
     }
 
     function syncAllPlayers() { if (isHost) sendDataToAll({ type: "SYNC_PLAYERS", players: playerList }); updateAreaUIBadges(); }
