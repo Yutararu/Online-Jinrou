@@ -72,7 +72,7 @@
         .input-area input { flex-grow: 1; }
         .input-area button { padding: 0 24px; background: #e74c3c; border: none; color: white; font-weight: bold; border-radius: 8px; cursor: pointer; font-size: 1rem; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
 
-        /* 役職説明ポップアップ */
+        /* ポップアップアニメーション用 */
         .full-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 9999; display: flex; flex-direction: column; justify-content: center; align-items: center; background: rgba(10, 15, 28, 0.95); display: none; text-align: center; padding: 20px; box-sizing: border-box; }
         .overlay-title { color: #f1c40f; font-size: 1.5rem; letter-spacing: 2px; text-shadow: 0 0 10px rgba(241,196,15,0.5); }
         .overlay-role { font-size: 3rem; font-weight: bold; margin-top: 15px; animation: pulse 1s infinite alternate; }
@@ -233,7 +233,7 @@
         peer.on('open', () => {
             conn = peer.connect(targetId);
             conn.on('open', () => {
-                statusText.textContent = `${myName} として世界の境界に滞在中`;
+                statusText.textContent = `${myName} として世界の境界に滞年中`;
                 lockUI();
                 conn.send({ type: "JOIN_NAME", name: myName });
             });
@@ -259,7 +259,15 @@
             case "MOVE_AREA": if (isHost) { let p = playerList.find(pl => pl.name === data.name); if (p) p.area = data.area; syncAllPlayers(); } break;
             case "PHASE_CHANGE": playerList = data.players; myRole = playerList.find(p => p.name === myName)?.role || myRole; executePhaseTransition(data.phase); break;
             case "TIMER_SYNC": timerDisplay.textContent = `刻限まであと: ${data.time}秒`; break;
-            case "CHAT_BROADCAST": if (shouldReceiveMessage(data)) logMain(`[${data.area}] ${data.sender}: ${data.msg}`); break;
+            case "CHAT_BROADCAST": 
+                if (shouldReceiveMessage(data)) {
+                    if (data.phase === "NIGHT") {
+                        logMain(`${data.sender}: zzz..`);
+                    } else {
+                        logMain(`${data.sender}: ${data.msg}`);
+                    }
+                }
+                break;
             case "SUBMIT_NIGHT_ACTION":
                 if (isHost) {
                     nightActions[data.sender] = data.target;
@@ -268,13 +276,15 @@
                         let res = (t.role === "人狼") ? "人狼" : "人間";
                         senderConn.send({ type: "PRIVATE_ALERT", title: "[星詠みの結果]", body: `${data.target} の魂は【 ${res} 】の兆候を示している…`, targetName: data.sender });
                     }
-                    // タイマー同期中なので、全員揃っても30秒経過するまで待つ（または早期切り替え処理を挟む）
                 }
                 break;
             case "SUBMIT_VOTE": if (isHost) { votesReceived[data.sender] = data.target; } break;
             case "PRIVATE_ALERT": 
                 showOverlay(data.title, data.body, myRole); 
                 logMain(`[秘匿託宣] ${data.title}: ${data.body}`); 
+                break;
+            case "ANNOUNCE_OVERLAY":
+                showOverlay(data.title, data.body, "ANNOUNCE");
                 break;
             case "SYSTEM_LOG": logMain(data.msg); break;
         }
@@ -313,7 +323,13 @@
         let areaContext = currentArea;
         if (!playerList.find(p => p.name === myName)?.alive) areaContext = "精霊界";
         else if (currentPhase === "NIGHT" && myRole === "人狼") areaContext = "魔族のテレパシー";
-        logMain(`[${areaContext}] あなた: ${txt}`);
+
+        if (currentPhase === "NIGHT") {
+            logMain(`あなた: zzz..`);
+        } else {
+            logMain(`あなた: ${txt}`);
+        }
+
         sendDataToAll({ type: "CHAT_BROADCAST", sender: myName, msg: txt, area: areaContext, phase: currentPhase });
         msgInput.value = "";
     }
@@ -351,7 +367,6 @@
         executePhaseTransition(nextPhase);
     }
 
-    // 共通タイマー処理（ホスト専用）
     function startPhaseTimer(durationSeconds, onTimeoutCallback) {
         if (countdownInterval) clearInterval(countdownInterval);
         let timeLeft = durationSeconds;
@@ -378,8 +393,8 @@
 
         if (phase === "NIGHT") {
             document.body.className = "bg-night"; areaUI.style.display = 'none';
-            showOverlay("[常闇の夜フェーズ]", "闇に紛れ、30秒以内に行動を選択してください", "人狼");
-            chatTitle.textContent = myRole === "人狼" ? "魔族のテレパシー（人狼）" : "深き眠りの中…";
+            showOverlay("[常闇の夜フェーズ]", "解き放たれる魔力。30秒以内に行動を選択してください", "人狼");
+            chatTitle.textContent = "深き眠りの中…";
             mainChat.value = "";
             timerDisplay.style.display = 'block';
             
@@ -387,7 +402,6 @@
             
             if (isHost) {
                 executeBotNightActions(); 
-                // 夜の30秒強制タイマー。時間切れになったら行動していなくても朝にする
                 startPhaseTimer(30, () => {
                     proceedToDay();
                 });
@@ -395,7 +409,6 @@
         } 
         else if (phase === "DAY") {
             document.body.className = "bg-day"; areaUI.style.display = 'grid';
-            showOverlay("[陽光の昼フェーズ]", "世界の各地へ移動し、密談を交わしてください", "市民");
             statusText.textContent = "白昼：各エリアを選択して移動し、思念を交わせ！";
             currentArea = "聖なる大広場"; chatTitle.textContent = `${currentArea} の思念`; mainChat.value = "";
             document.querySelectorAll('.area-card').forEach(c => c.classList.remove('active'));
@@ -414,7 +427,6 @@
             
             if (isHost) {
                 executeBotVotes();
-                // 投票も30秒で強制終了
                 startPhaseTimer(30, () => {
                     evaluateVotes();
                 });
@@ -472,30 +484,31 @@
         let wTarget = wolf ? nightActions[wolf.name] : null;
         let kTarget = knight ? nightActions[knight.name] : null;
 
-        let report = "【夜明けの告解】昨晩、世界を揺るがす悲劇は起きなかった。皆健在だ。";
+        let title = "[夜明けの告解]";
+        let report = "昨晩、悲劇は起きなかった。皆健在だ。";
         if (wTarget) {
             if (kTarget && wTarget === kTarget) {
-                report = "【夜明けの告解】人狼の牙が襲いかかるも、高潔な騎士の盾がそれを弾き返した！";
+                report = "人狼の牙が襲いかかるも、騎士の盾がそれを弾き返した！";
             } else {
                 let vic = playerList.find(p => p.name === wTarget);
-                if (vic) { vic.alive = false; report = `【夜明けの告解】無念！ 昨晩 ${vic.name} 殿が冥府の魔狼に襲われ、命を落としました。`; }
+                if (vic) { vic.alive = false; report = `無念！ 昨晩 ${vic.name} 殿が魔狼に襲われ、命を落としました。`; }
             }
         }
 
-        sendDataToAll({ type: "SYSTEM_LOG", msg: report });
+        sendDataToAll({ type: "ANNOUNCE_OVERLAY", title: title, body: report });
+        sendDataToAll({ type: "SYSTEM_LOG", msg: `${title} ${report}` });
+        
         if (checkVictoryConditions()) return;
-        setTimeout(() => { changePhase("DAY"); }, 3000);
+        setTimeout(() => { changePhase("DAY"); }, 4500);
     }
 
     function evaluateVotes() {
         if (countdownInterval) clearInterval(countdownInterval);
         
         let tally = {};
-        // 投票しなかったプレイヤーがいた場合のエラーを防ぐデフォルト処理
         playerList.forEach(p => {
             if (p.alive) {
                 let target = votesReceived[p.name];
-                // 未投票ならランダムで生存者に投票したことにする
                 if (!target) {
                     let targets = playerList.filter(t => t.alive);
                     if (targets.length > 0) target = targets[Math.floor(Math.random() * targets.length)].name;
@@ -507,25 +520,34 @@
         let executionTarget = null, maxVotes = -1;
         for (let name in tally) { if (tally[name] > maxVotes) { maxVotes = tally[name]; executionTarget = name; } }
 
-        let msg = "【断罪の結末】今回の投票では誰も追放されませんでした。";
+        let title = "[断罪の結末]";
+        let msg = "今回の投票では誰も追放されませんでした。";
         if (executionTarget) {
             let victim = playerList.find(p => p.name === executionTarget);
             if (victim) {
                 victim.alive = false;
-                msg = `【断罪の結末】審判により、${executionTarget} 殿が世界の秩序のために聖水で追放されました。`;
+                msg = `審判により、${executionTarget} 殿が世界の秩序のために追放されました。`;
             }
         }
 
-        sendDataToAll({ type: "SYSTEM_LOG", msg: msg });
+        sendDataToAll({ type: "ANNOUNCE_OVERLAY", title: title, body: msg });
+        sendDataToAll({ type: "SYSTEM_LOG", msg: `${title} ${msg}` });
+        
         if (checkVictoryConditions()) return;
-        setTimeout(() => { changePhase("NIGHT"); }, 3000);
+        setTimeout(() => { changePhase("NIGHT"); }, 4500);
     }
 
     function checkVictoryConditions() {
         const wolfCount = playerList.filter(p => p.role === "人狼" && p.alive).length;
         const humanCount = playerList.filter(p => p.role !== "人狼" && p.alive).length;
-        if (wolfCount === 0) { sendDataToAll({ type: "PRIVATE_ALERT", title: "[聖戦決着]", body: "市民陣営的勝利！ 闇の霧は晴れ、世界に光が戻った！" }); return true; }
-        if (wolfCount >= humanCount) { sendDataToAll({ type: "PRIVATE_ALERT", title: "[終焉の刻]", body: "人狼陣営の勝利！ 世界は人狼の王に支配された…" }); return true; }
+        if (wolfCount === 0) { 
+            setTimeout(() => { sendDataToAll({ type: "PRIVATE_ALERT", title: "[聖戦決着]", body: "市民陣営の勝利！ 世界に光が戻った！" }); }, 4600);
+            return true; 
+        }
+        if (wolfCount >= humanCount) { 
+            setTimeout(() => { sendDataToAll({ type: "PRIVATE_ALERT", title: "[終焉の刻]", body: "人狼陣営の勝利！ 世界は闇に包まれた…" }); }, 4600);
+            return true; 
+        }
         return false;
     }
 
@@ -562,7 +584,7 @@
     }
 
     function syncAllPlayers() { if (isHost) sendDataToAll({ type: "SYNC_PLAYERS", players: playerList }); updateAreaUIBadges(); }
-    function sendDataToAll(data) { if (isHost) { connections.forEach(c => { if (c.open) c.send(data); }); } else { if (conn?.open) conn.send(data); } }
+    function sendDataToAll(data) { if (isHost) { connections.forEach(c => { if (c.open) c.send(data); }); } else { if (conn?.open) conn.send({ ...data, name: myName }); } }
     function sendPrivateNotice(targetName, title, body) {
         if (myName === targetName) showOverlay(title, body, myRole);
         else { let c = connections.find(cn => cn.playerName === targetName); if (c?.open) c.send({ type: "PRIVATE_ALERT", title: title, body: body }); }
@@ -581,16 +603,23 @@
     function showOverlay(title, body, roleStyle = "") {
         overlayTitleText.textContent = title; overlayRoleText.textContent = body;
         
-        let cleanRole = roleStyle;
-        if (body.includes("市民")) cleanRole = "市民";
-        if (body.includes("人狼")) cleanRole = "人狼";
-        if (body.includes("占い師")) cleanRole = "占い師";
-        if (body.includes("騎士")) cleanRole = "騎士";
-        if (body.includes("怪盗")) cleanRole = "怪盗";
+        if (roleStyle === "ANNOUNCE") {
+            overlayDescText.textContent = "運命が静かに更新されました。";
+            overlayRoleText.className = "overlay-role";
+            overlayRoleText.style.color = "#f1c40f";
+        } else {
+            let cleanRole = roleStyle;
+            if (body.includes("市民")) cleanRole = "市民";
+            if (body.includes("人狼")) cleanRole = "人狼";
+            if (body.includes("占い師")) cleanRole = "占い師";
+            if (body.includes("騎士")) cleanRole = "騎士";
+            if (body.includes("怪盗")) cleanRole = "怪盗";
+            
+            overlayDescText.textContent = roleDescriptions[cleanRole] || "神々による世界の再構築中…";
+            overlayRoleText.className = ["人狼"].includes(cleanRole) ? "overlay-role wolf-color" : "overlay-role citizen-color";
+            overlayRoleText.style.color = "";
+        }
         
-        overlayDescText.textContent = roleDescriptions[cleanRole] || "神々による世界の再構築中…";
-        
-        overlayRoleText.className = ["人狼"].includes(cleanRole) ? "overlay-role wolf-color" : "overlay-role citizen-color";
         overlay.style.display = 'flex'; 
         setTimeout(() => overlay.style.display = 'none', 4500);
     }
