@@ -103,7 +103,7 @@
     </div>
 
     <div class="setup-section" id="host-setup-panel">
-        <div class="form-group"><label>冒険者の名前</label><input type="text" id="host-name" placeholder="例: 勇者GM"></div>
+        <div class="form-group"><label>冒険者の名前（10文字まで）</label><input type="text" id="host-name" placeholder="例: 勇者GM" maxlength="10"></div>
         <div class="form-group"><label>世界識別コード (部屋ID)</label><input type="text" id="host-room-id" placeholder="例: fantasy-room"></div>
         <div class="form-group-checkbox">
             <input type="checkbox" id="host-use-bots" checked>
@@ -113,7 +113,7 @@
     </div>
 
     <div class="setup-section" id="join-setup-panel">
-        <div class="form-group"><label>冒険者の名前</label><input type="text" id="join-name" placeholder="例: 戦士A"></div>
+        <div class="form-group"><label>冒険者の名前（10文字まで）</label><input type="text" id="join-name" placeholder="例: 戦士A" maxlength="10"></div>
         <div class="form-group"><label>世界識別コード (部屋ID)</label><input type="text" id="join-target-id" placeholder="例: fantasy-room"></div>
         <button id="btn-start-join" class="btn-action">世界へ飛び込む</button>
     </div>
@@ -192,10 +192,11 @@
     chooseJoinBtn.addEventListener('click', () => { chooseJoinBtn.classList.add('active-join'); chooseHostBtn.classList.remove('active-host'); joinPanel.style.display = 'block'; hostPanel.style.display = 'none'; });
 
     document.getElementById('btn-start-host').addEventListener('click', () => {
-        const name = document.getElementById('host-name').value.trim();
+        let name = document.getElementById('host-name').value.trim();
         const roomId = document.getElementById('host-room-id').value.trim();
         const useBots = document.getElementById('host-use-bots').checked;
         if (!name || !roomId) return alert("名前と世界識別コードを入力してください");
+        if (name.length > 10) name = name.substring(0, 10);
         myName = name;
         peer = new Peer(roomId);
         peer.on('open', (id) => {
@@ -225,9 +226,10 @@
     });
 
     document.getElementById('btn-start-join').addEventListener('click', () => {
-        const name = document.getElementById('join-name').value.trim();
+        let name = document.getElementById('join-name').value.trim();
         const targetId = document.getElementById('join-target-id').value.trim();
         if (!name || !targetId) return alert("名前と識別コードを入力してください");
+        if (name.length > 10) name = name.substring(0, 10);
         myName = name;
         peer = new Peer();
         peer.on('open', () => {
@@ -284,9 +286,16 @@
                 logMain(`[秘匿託宣] ${data.title}: ${data.body}`); 
                 break;
             case "ANNOUNCE_OVERLAY":
-                showOverlay(data.title, data.body, "ANNOUNCE");
+                showOverlay(data.title, data.body, data.roleStyle || "ANNOUNCE");
                 break;
             case "SYSTEM_LOG": logMain(data.msg); break;
+            case "GAME_OVER":
+                if (countdownInterval) clearInterval(countdownInterval);
+                currentPhase = "END";
+                showOverlay(data.title, data.body, data.winnerSide, true);
+                statusText.textContent = `儀式終了：${data.body}`;
+                gameActionPanel.style.display = 'none';
+                break;
         }
     }
 
@@ -360,6 +369,7 @@
     btnResetGame.addEventListener('click', () => { if (isHost) location.reload(); });
 
     function changePhase(nextPhase) {
+        if (currentPhase === "END") return;
         currentPhase = nextPhase;
         if (nextPhase === "NIGHT") { nightActions = {}; playerList.forEach(p => p.area = "聖なる大広場"); }
         else if (nextPhase === "DAY") { votesReceived = {}; }
@@ -374,6 +384,7 @@
         timerDisplay.textContent = `刻限まであと: ${timeLeft}秒`;
         
         countdownInterval = setInterval(() => {
+            if (currentPhase === "END") { clearInterval(countdownInterval); return; }
             timeLeft--;
             timerDisplay.textContent = `刻限まであと: ${timeLeft}秒`;
             sendDataToAll({ type: "TIMER_SYNC", time: timeLeft });
@@ -385,6 +396,7 @@
     }
 
     function executePhaseTransition(phase) {
+        if (currentPhase === "END") return;
         currentPhase = phase; gameActionPanel.style.display = 'none';
         if (countdownInterval) clearInterval(countdownInterval);
         
@@ -495,10 +507,11 @@
             }
         }
 
+        if (checkVictoryConditions(title, report)) return;
+
         sendDataToAll({ type: "ANNOUNCE_OVERLAY", title: title, body: report });
         sendDataToAll({ type: "SYSTEM_LOG", msg: `${title} ${report}` });
         
-        if (checkVictoryConditions()) return;
         setTimeout(() => { changePhase("DAY"); }, 4500);
     }
 
@@ -530,23 +543,35 @@
             }
         }
 
+        if (checkVictoryConditions(title, msg)) return;
+
         sendDataToAll({ type: "ANNOUNCE_OVERLAY", title: title, body: msg });
         sendDataToAll({ type: "SYSTEM_LOG", msg: `${title} ${msg}` });
         
-        if (checkVictoryConditions()) return;
         setTimeout(() => { changePhase("NIGHT"); }, 4500);
     }
 
-    function checkVictoryConditions() {
+    function checkVictoryConditions(lastTitle, lastMsg) {
+        if (!isHost) return false;
         const wolfCount = playerList.filter(p => p.role === "人狼" && p.alive).length;
         const humanCount = playerList.filter(p => p.role !== "人狼" && p.alive).length;
-        if (wolfCount === 0) { 
-            setTimeout(() => { sendDataToAll({ type: "PRIVATE_ALERT", title: "[聖戦決着]", body: "市民陣営の勝利！ 世界に光が戻った！" }); }, 4600);
-            return true; 
+        
+        if (wolfCount === 0) {
+            currentPhase = "END";
+            if (countdownInterval) clearInterval(countdownInterval);
+            // 直前の死亡・追放ログを残すために少し待ってから終了告知を出す
+            setTimeout(() => {
+                sendDataToAll({ type: "GAME_OVER", title: "【聖戦決着】", body: "市民陣営の勝利！ 世界に光が戻った！", winnerSide: "市民" });
+            }, lastTitle ? 1500 : 0);
+            return true;
         }
-        if (wolfCount >= humanCount) { 
-            setTimeout(() => { sendDataToAll({ type: "PRIVATE_ALERT", title: "[終焉の刻]", body: "人狼陣営の勝利！ 世界は闇に包まれた…" }); }, 4600);
-            return true; 
+        if (wolfCount >= humanCount) {
+            currentPhase = "END";
+            if (countdownInterval) clearInterval(countdownInterval);
+            setTimeout(() => {
+                sendDataToAll({ type: "GAME_OVER", title: "【終焉の刻】", body: "人狼陣営の勝利！ 世界は闇に包まれた…", winnerSide: "人狼" });
+            }, lastTitle ? 1500 : 0);
+            return true;
         }
         return false;
     }
@@ -600,28 +625,28 @@
     }
 
     function logMain(m) { mainChat.value += m + "\n"; mainChat.scrollTop = mainChat.scrollHeight; }
-    function showOverlay(title, body, roleStyle = "") {
+    function showOverlay(title, body, roleStyle = "", isPermanent = false) {
         overlayTitleText.textContent = title; overlayRoleText.textContent = body;
         
         if (roleStyle === "ANNOUNCE") {
             overlayDescText.textContent = "運命が静かに更新されました。";
             overlayRoleText.className = "overlay-role";
             overlayRoleText.style.color = "#f1c40f";
+        } else if (roleStyle === "市民" || roleStyle === "人狼" || roleStyle === "占い師" || roleStyle === "騎士" || roleStyle === "怪盗") {
+            overlayDescText.textContent = roleDescriptions[roleStyle] || "神々による世界の再構築中…";
+            overlayRoleText.className = ["人狼"].includes(roleStyle) ? "overlay-role wolf-color" : "overlay-role citizen-color";
+            overlayRoleText.style.color = "";
         } else {
-            let cleanRole = roleStyle;
-            if (body.includes("市民")) cleanRole = "市民";
-            if (body.includes("人狼")) cleanRole = "人狼";
-            if (body.includes("占い師")) cleanRole = "占い師";
-            if (body.includes("騎士")) cleanRole = "騎士";
-            if (body.includes("怪盗")) cleanRole = "怪盗";
-            
-            overlayDescText.textContent = roleDescriptions[cleanRole] || "神々による世界の再構築中…";
-            overlayRoleText.className = ["人狼"].includes(cleanRole) ? "overlay-role wolf-color" : "overlay-role citizen-color";
+            // 勝敗表示などの特殊なケース
+            overlayDescText.textContent = isPermanent ? "「始まりの街に戻る」を押すとリセットされます。" : "運命の歯車が回る…";
+            overlayRoleText.className = (roleStyle === "人狼") ? "overlay-role wolf-color" : "overlay-role citizen-color";
             overlayRoleText.style.color = "";
         }
         
         overlay.style.display = 'flex'; 
-        setTimeout(() => overlay.style.display = 'none', 4500);
+        if (!isPermanent) {
+            setTimeout(() => overlay.style.display = 'none', 4500);
+        }
     }
 </script>
 </body>
