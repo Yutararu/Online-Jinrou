@@ -268,8 +268,23 @@
     btnGameControl.addEventListener('click', () => {
         if (!isHost || currentPhase !== "LOBBY") return;
         if (playerList.length < 3) return alert("ゲームを開始するには最低3人必要です（ボット含め）");
-        let roles = ["人狼", "占い師", "怪盗", "市民", "狂人", "騎士", "裏切り者", "市民"].slice(0, playerList.length);
-        while (roles.length < playerList.length) roles.push("市民");
+        
+        // --- 人数に応じた役職割り当てアルゴリズム ---
+        let roles = [];
+        const count = playerList.length;
+        if (count === 3) {
+            roles = ["人狼", "占い師", "怪盗"];
+        } else if (count === 4) {
+            roles = ["人狼", "占い師", "怪盗", "市民"];
+        } else if (count === 5) {
+            roles = ["人狼", "占い師", "騎士", "怪盗", "市民"];
+        } else {
+            roles = ["人狼", "人狼", "占い師", "騎士", "怪盗"];
+            while (roles.length < count) {
+                roles.push("市民");
+            }
+        }
+        
         roles.sort(() => Math.random() - 0.5);
         playerList.forEach((p, i) => { p.role = roles[i]; p.alive = true; p.area = "中央広場"; });
         sendDataToAll({ type: "START_GAME", players: playerList });
@@ -313,7 +328,13 @@
             chatTitle.textContent = myRole === "人狼" ? "人狼チャット" : "夜間待機";
             mainChat.value = "";
             if (["人狼", "占い師", "騎士", "怪盗"].includes(myRole)) activateActionUI(`${myRole}の行動先: `, false);
-            if (isHost) setTimeout(() => { executeBotNightActions(); }, 2000);
+            if (isHost) {
+                setTimeout(() => { 
+                    executeBotNightActions(); 
+                    // ボットなしで誰も夜動く役職がいない、または全員が選択し終えているかのチェックを噛ませる
+                    evaluateNightActions(); 
+                }, 2000);
+            }
         } 
         else if (phase === "DAY") {
             document.body.className = "bg-day"; areaUI.style.display = 'grid';
@@ -356,40 +377,51 @@
     });
 
     function evaluateNightActions() {
+        if (currentPhase !== "NIGHT") return;
         const requiredActators = playerList.filter(p => p.alive && ["人狼", "占い師", "怪盗", "騎士"].includes(p.role));
         const currentActionCount = Object.keys(nightActions).length;
 
-        if (currentActionCount >= requiredActators.length) {
-            let robber = playerList.find(p => p.role === "怪盗" && p.alive);
-            let rTargetName = robber ? nightActions[robber.name] : null;
-            if (robber && rTargetName) {
-                let victim = playerList.find(p => p.name === rTargetName);
-                if (victim) {
-                    let stolen = victim.role; victim.role = "市民"; robber.role = stolen;
-                    sendPrivateNotice(robber.name, "怪盗結果", `${victim.name} の役職 [ ${stolen} ] を盗みました`);
-                    sendPrivateNotice(victim.name, "盗難発生", "役職を盗まれ市民になりました");
-                }
-            }
-
-            let wolf = playerList.find(p => p.role === "人狼" && p.alive);
-            let knight = playerList.find(p => p.role === "騎士" && p.alive);
-            let wTarget = wolf ? nightActions[wolf.name] : null;
-            let kTarget = knight ? nightActions[knight.name] : null;
-
-            let report = "[朝の報告] 昨晩の犠牲者はありませんでした。";
-            if (wTarget) {
-                if (kTarget && wTarget === kTarget) {
-                    report = "[朝の報告] 騎士の護衛により襲撃は防がれました。";
-                } else {
-                    let vic = playerList.find(p => p.name === wTarget);
-                    if (vic) { vic.alive = false; report = `[朝の報告] 昨晩 ${vic.name} さんが襲撃され死亡しました。`; }
-                }
-            }
-
-            sendDataToAll({ type: "SYSTEM_LOG", msg: report });
-            if (checkVictoryConditions()) return;
-            setTimeout(() => { changePhase("DAY"); }, 3000);
+        // 【セーフティ】動くべき役職が生存していない（市民だけなど）なら即座に朝へ
+        if (requiredActators.length === 0) {
+            proceedToDay();
+            return;
         }
+
+        if (currentActionCount >= requiredActators.length) {
+            proceedToDay();
+        }
+    }
+
+    function proceedToDay() {
+        let robber = playerList.find(p => p.role === "怪盗" && p.alive);
+        let rTargetName = robber ? nightActions[robber.name] : null;
+        if (robber && rTargetName) {
+            let victim = playerList.find(p => p.name === rTargetName);
+            if (victim) {
+                let stolen = victim.role; victim.role = "市民"; robber.role = stolen;
+                sendPrivateNotice(robber.name, "怪盗結果", `${victim.name} の役職 [ ${stolen} ] を盗みました`);
+                sendPrivateNotice(victim.name, "盗難発生", "役職を盗まれ市民になりました");
+            }
+        }
+
+        let wolf = playerList.find(p => p.role === "人狼" && p.alive);
+        let knight = playerList.find(p => p.role === "騎士" && p.alive);
+        let wTarget = wolf ? nightActions[wolf.name] : null;
+        let kTarget = knight ? nightActions[knight.name] : null;
+
+        let report = "[朝の報告] 昨晩の犠牲者はありませんでした。";
+        if (wTarget) {
+            if (kTarget && wTarget === kTarget) {
+                report = "[朝の報告] 騎士の護衛により襲撃は防がれました。";
+            } else {
+                let vic = playerList.find(p => p.name === wTarget);
+                if (vic) { vic.alive = false; report = `[朝の報告] 昨晩 ${vic.name} さんが襲撃され死亡しました。`; }
+            }
+        }
+
+        sendDataToAll({ type: "SYSTEM_LOG", msg: report });
+        if (checkVictoryConditions()) return;
+        setTimeout(() => { changePhase("DAY"); }, 3000);
     }
 
     function evaluateVotes() {
@@ -434,7 +466,6 @@
                 botSeerMemory[p.name] = { target: rTarget, isWolf: isW };
             }
         });
-        evaluateNightActions();
     }
 
     function executeBotVotes() {
