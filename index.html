@@ -502,6 +502,15 @@
 
     function activateActionUI(labelText, includeSelf) {
         actionPanelLabel.textContent = labelText; actionTargetSelect.innerHTML = "";
+        
+        // 投票フェーズの場合のみ「スキップ（棄権）」の選択肢を先頭に100%区別できる形式で作成
+        if (currentPhase === "VOTE") {
+            let optSkip = document.createElement('option');
+            optSkip.value = "SKIP_VOTE";
+            optSkip.textContent = "[スキップ (投票棄権)]";
+            actionTargetSelect.appendChild(optSkip);
+        }
+
         playerList.forEach(p => {
             if (!p.alive) return;
             if (!includeSelf && p.name === myName) return;
@@ -571,31 +580,57 @@
         if (countdownInterval) clearInterval(countdownInterval);
         
         let tally = {};
+        let logDetails = [];
+
         playerList.forEach(p => {
             if (p.alive) {
                 let target = votesReceived[p.name];
+                // 選択がない場合は自動的に「スキップ（投票棄権）」とする
                 if (!target) {
-                    let targets = playerList.filter(t => t.alive);
-                    if (targets.length > 0) target = targets[Math.floor(Math.random() * targets.length)].name;
+                    target = "SKIP_VOTE";
                 }
-                if (target) tally[target] = (tally[target] || 0) + 1;
+
+                if (target === "SKIP_VOTE") {
+                    logDetails.push(`[投票] ${p.name} -> [スキップ]`);
+                } else {
+                    logDetails.push(`[投票] ${p.name} -> ${target}`);
+                    tally[target] = (tally[target] || 0) + 1;
+                }
             }
         });
 
-        let executionTarget = null, maxVotes = -1;
-        for (let name in tally) { if (tally[name] > maxVotes) { maxVotes = tally[name]; executionTarget = name; } }
+        // 投票の内訳詳細をシステムログに出力して100%区別可能にする
+        sendDataToAll({ type: "SYSTEM_LOG", msg: `--- 投票内訳 ---\n` + logDetails.join("\n") + `\n----------------` });
+
+        let executionTarget = null, maxVotes = 0;
+        let isTie = false;
+
+        for (let name in tally) {
+            if (tally[name] > maxVotes) {
+                maxVotes = tally[name];
+                executionTarget = name;
+                isTie = false;
+            } else if (tally[name] === maxVotes) {
+                isTie = true; // 最多得票が同数の場合
+            }
+        }
 
         let title = "[断罪の結末]";
-        let msg = "今回の投票では誰も追放されませんでした。";
+        let msg = "";
         let votedRole = null;
 
-        if (executionTarget) {
+        // スキップが過半数、もしくは最多得票が同数の場合、または誰も得票しなかった場合
+        if (executionTarget && !isTie) {
             let victim = playerList.find(p => p.name === executionTarget);
             if (victim) {
                 victim.alive = false;
                 votedRole = victim.role;
-                msg = `審判により、${executionTarget} 殿が世界の秩序のために追放されました。`;
+                msg = `審判により、得票数 ${maxVotes} 票で ${executionTarget} 殿が世界の秩序のために追放されました。`;
             }
+        } else if (isTie) {
+            msg = `最多得票数が同数（${maxVotes}票）だったため、今回の儀式では誰も追放されませんでした。`;
+        } else {
+            msg = "皆の決断により投票がスキップされ、誰も追放されませんでした。";
         }
 
         syncAllPlayers(); 
@@ -605,7 +640,6 @@
         sendDataToAll({ type: "ANNOUNCE_OVERLAY", title: title, body: msg, roleStyle: "ANNOUNCE" });
         sendDataToAll({ type: "SYSTEM_LOG", msg: `${title} ${msg}` });
         
-        // 【修正】ポップアップ表示が消えた後のタイミング（4.5秒後）で確実に夜フェーズへ移行する
         setTimeout(() => { changePhase("NIGHT"); }, 4500);
     }
 
@@ -665,13 +699,21 @@
         playerList.forEach(p => {
             if (!p.isDummy || !p.alive) return;
             let targetName = "";
+            
+            // 占い師ロボが人狼を見つけている場合はその人狼を狙い撃ち
             if (p.role === "占い師" && botSeerMemory[p.name]?.isWolf) {
                 let t = playerList.find(t => t.name === botSeerMemory[p.name].target);
                 if (t && t.alive) targetName = t.name;
             }
+            
+            // 特に情報がない場合、ボットは30%の確率で「スキップ」、70%の確率でランダム投票
             if (!targetName) {
-                let targets = playerList.filter(t => t.alive && t.name !== p.name);
-                targetName = targets[Math.floor(Math.random() * targets.length)].name;
+                if (Math.random() < 0.3) {
+                    targetName = "SKIP_VOTE";
+                } else {
+                    let targets = playerList.filter(t => t.alive && t.name !== p.name);
+                    targetName = targets[Math.floor(Math.random() * targets.length)].name;
+                }
             }
             votesReceived[p.name] = targetName;
         });
