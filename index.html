@@ -77,13 +77,17 @@
         .input-area button { padding: 0 24px; background: #dc2626; border: none; color: white; font-weight: bold; border-radius: 8px; cursor: pointer; font-size: 1rem; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
 
         /* ポップアップアニメーション */
-        .full-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 9999; display: flex; flex-direction: column; justify-content: center; align-items: center; background: rgba(15, 23, 42, 0.95); display: none; text-align: center; padding: 20px; box-sizing: border-box; }
+        .full-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 9999; display: flex; flex-direction: column; justify-content: center; align-items: center; background: rgba(15, 23, 42, 0.96); display: none; text-align: center; padding: 20px; box-sizing: border-box; }
         .overlay-title { color: #f59e0b; font-size: 1.5rem; letter-spacing: 2px; text-shadow: 0 0 10px rgba(245,158,11,0.5); }
         .overlay-role { font-size: 3rem; font-weight: bold; margin-top: 15px; animation: pulse 1s infinite alternate; }
-        .overlay-desc { color: #cbd5e1; max-width: 500px; margin-top: 20px; font-size: 1.1rem; line-height: 1.6; background: rgba(255,255,255,0.05); padding: 15px; border-radius: 8px; border: 1px solid #334155; }
+        .overlay-desc { color: #cbd5e1; max-width: 520px; margin-top: 20px; font-size: 1.05rem; line-height: 1.6; background: rgba(255,255,255,0.05); padding: 18px; border-radius: 8px; border: 1px solid #334155; text-align: left; }
         .citizen-color { color: #22c55e; text-shadow: 0 0 15px rgba(34,197,94,0.4); }
         .wolf-color { color: #ef4444; text-shadow: 0 0 15px rgba(239,68,68,0.4); }
         .teruteru-color { color: #f59e0b; text-shadow: 0 0 15px rgba(245,158,11,0.6); }
+
+        /* スキップボタン */
+        .btn-skip-overlay { margin-top: 25px; padding: 10px 30px; background: #475569; color: #fff; border: none; border-radius: 6px; font-size: 1rem; font-weight: bold; cursor: pointer; transition: background 0.2s; box-shadow: 0 4px 6px rgba(0,0,0,0.2); }
+        .btn-skip-overlay:hover { background: #64748b; }
 
         @keyframes pulse { from { transform: scale(0.98); } to { transform: scale(1.02); } }
     </style>
@@ -94,6 +98,7 @@
     <div class="overlay-title" id="overlay-title-text">[アナウンス]</div>
     <div class="overlay-role" id="overlay-role-text">配役</div>
     <div class="overlay-desc" id="overlay-desc-text">説明文がここに表示されます。</div>
+    <button id="btn-skip-overlay" class="btn-skip-overlay">説明をスキップ</button>
 </div>
 
 <div id="move-loading" class="loading-overlay">別エリアへ移動中...</div>
@@ -108,7 +113,7 @@
     </div>
 
     <div class="setup-section" id="host-setup-panel">
-        <div class="form-group"><label>あなたのプレイヤー名（10文字まで）</label><input type="text" id="host-name" placeholder="例: 主催者" maxlength="10"></div>
+        <div class="form-group"><label>あなたのプレイヤー名（10文字まで）</label><input type="text" id="host-name" placeholder="例: 主主催者" maxlength="10"></div>
         <div class="form-group"><label>部屋ID (自由に入力)</label><input type="text" id="host-room-id" placeholder="例: private-room-123"></div>
         <div class="form-group-checkbox">
             <input type="checkbox" id="host-use-bots" checked>
@@ -166,15 +171,15 @@
     let myName = "", myRole = "", currentPhase = "LOBBY", currentArea = "中央広場", isMoving = false;
     let playerList = [], lobbyDummies = ["ボットA", "ボットB", "ボットC"]; 
     let banList = []; 
-    let nightActions = {}, votesReceived = {}, countdownInterval = null;
+    let nightActions = {}, votesReceived = {}, countdownInterval = null, overlayTimeout = null;
     let botSeerMemory = {};
 
     const roleDescriptions = {
-        "市民": "[市民陣営] 能力を持たない一般市民です。昼の移動チャットと議論で怪しいプレイヤーを洗い出し、すべての人狼を追放できれば勝利となります！",
-        "人狼": "[人狼陣営] 夜になると他のプレイヤー1人を襲撃し排除できます。人狼同士でのみ通じるチャットが使えます。市民を全員排除して、生存数を「市民以下」にできれば勝利！",
-        "占い師": "[市民陣営] 毎晩、生存者の中から1人を選び、その正体が「人狼」か「人間」かを知ることができます。市民陣営の勝利の鍵を握る重要職です！",
-        "騎士": "[市民陣営] 毎晩、自分以外の生存者1人を人狼の襲撃から護衛できます（同じ人を連続で守ることも可能）。誰が襲撃されそうかを推理して守り抜きましょう！",
-        "テルテル": "[第三陣営] どの陣営にも属さない単独役職。昼の『投票フェーズ』で自分が追放されれば、その瞬間に単独で完全勝利となります！"
+        "市民": "【市民陣営の勝利条件: 全ての人狼の追放】<br>能力を持たない一般市民です。昼フェーズはエリアを移動して他の人とチャットで情報交換し、怪しい人を絞り込みましょう。夜は行動能力はありません。",
+        "人狼": "【人狼陣営の勝利条件: 市民の生存数を人狼以下にする】<br>毎晩、生存者の中から1人を指定して襲撃（排除）できます。また、夜の間は人狼同士でのみ繋がる専用チャットで秘密の作戦会議が可能です。",
+        "占い師": "【市民陣営の勝利条件: 全ての人狼の追放】<br>毎晩、自分以外の生存者1人を占うことができ、そのプレイヤーが「人狼」か「人間」かを知ることができます。市民陣営の勝利の鍵を握る重要職です。",
+        "騎士": "【市民陣営の勝利条件: 全ての人狼の追放】<br>毎晩、自分以外の生存者1人を人狼の襲撃から護衛できます（同じ人を連続で守ることも可能）。人狼に狙われそうな重要人物を守り抜きましょう。",
+        "テルテル": "【第三陣営の勝利条件: 昼の投票で自分が追放される】<br>どの陣営にも属さない単独役職。昼の議論で「自分が人狼である」かのように怪しく振る舞い、投票で追放されればその瞬間に単独で完全勝利となります。"
     };
 
     const chooseHostBtn = document.getElementById('choose-host');
@@ -195,6 +200,7 @@
     const overlayTitleText = document.getElementById('overlay-title-text');
     const overlayRoleText = document.getElementById('overlay-role-text');
     const overlayDescText = document.getElementById('overlay-desc-text');
+    const btnSkipOverlay = document.getElementById('btn-skip-overlay');
     const gameActionPanel = document.getElementById('game-action-panel');
     const actionPanelLabel = document.getElementById('action-panel-label');
     const actionTargetSelect = document.getElementById('action-target-select');
@@ -285,7 +291,7 @@
             case "START_GAME": 
                 playerList = data.players; 
                 myRole = playerList.find(p => p.name === myName)?.role || "市民"; 
-                showOverlay("[配役発表]", `あなたは【${myRole}】です`, myRole); 
+                showOverlay("[ゲーム開始 - ルール説明]", `あなたの役職は【${myRole}】です`, myRole, false, true); 
                 lobbyMemberPanel.style.display = 'block';
                 break;
             case "SYNC_PLAYERS": playerList = data.players; updateAreaUIBadges(); updateMemberListUI(); break;
@@ -310,7 +316,7 @@
                 break;
             case "SUBMIT_VOTE": if (isHost) { votesReceived[data.sender] = data.target; } break;
             case "PRIVATE_ALERT": 
-                showOverlay(data.title, data.body, myRole); 
+                showOverlay("[個別通知]", data.body, myRole); 
                 logMain(`[個別通知] ${data.title}: ${data.body}`); 
                 break;
             case "ANNOUNCE_OVERLAY":
@@ -430,12 +436,26 @@
         playerList.forEach((p, i) => { p.role = roles[i]; p.alive = true; p.area = "中央広場"; });
         sendDataToAll({ type: "START_GAME", players: playerList });
         myRole = playerList.find(p => p.name === myName).role;
-        showOverlay("[配役発表]", `あなたは【${myRole}】です`, myRole);
+        showOverlay("[ゲーム開始 - ルール説明]", `あなたの役職は【${myRole}】です`, myRole, false, true);
         btnGameControl.style.display = 'none'; btnResetGame.style.display = 'block';
-        setTimeout(() => { changePhase("NIGHT"); }, 4000);
+        
+        // 10秒間のルール説明表示のあと夜フェーズへ（スキップボタンで即移行も可能）
+        overlayTimeout = setTimeout(() => { closeOverlayAndStart(); }, 10000);
     });
 
     btnResetGame.addEventListener('click', () => { if (isHost) location.reload(); });
+
+    btnSkipOverlay.addEventListener('click', () => {
+        closeOverlayAndStart();
+    });
+
+    function closeOverlayAndStart() {
+        if (overlayTimeout) clearTimeout(overlayTimeout);
+        overlay.style.display = 'none';
+        if (isHost && currentPhase === "LOBBY") {
+            changePhase("NIGHT");
+        }
+    }
 
     function changePhase(nextPhase) {
         if (currentPhase === "END") return;
@@ -727,30 +747,36 @@
 
     function logMain(m) { mainChat.value += m + "\n"; mainChat.scrollTop = mainChat.scrollHeight; }
     
-    function showOverlay(title, body, roleStyle = "", isPermanent = false) {
-        overlayTitleText.textContent = title; overlayRoleText.textContent = body;
+    function showOverlay(title, body, roleStyle = "", isPermanent = false, isGameStart = false) {
+        overlayTitleText.textContent = title; 
+        overlayRoleText.innerHTML = body;
         
-        if (roleStyle === "ANNOUNCE") {
-            overlayDescText.textContent = "戦況に変化がありました。";
-            overlayRoleText.className = "overlay-role";
-            overlayRoleText.style.color = "#f59e0b";
-        } else if (roleStyle === "市民" || roleStyle === "人狼" || roleStyle === "占い師" || roleStyle === "騎士" || roleStyle === "テルテル") {
-            overlayDescText.textContent = roleDescriptions[roleStyle] || "ゲーム待機中...";
-            if (roleStyle === "人狼") overlayRoleText.className = "overlay-role wolf-color";
-            else if (roleStyle === "テルテル") overlayRoleText.className = "overlay-role teruteru-color";
-            else overlayRoleText.className = "overlay-role citizen-color";
-            overlayRoleText.style.color = "";
+        if (isGameStart) {
+            btnSkipOverlay.style.display = "block";
+            overlayDescText.innerHTML = `<strong>【ゲームの流れと基本ルール】</strong><br>
+            ・<strong>夜フェーズ</strong>: 各役職が能力を使用したり人狼チャットで密談します。<br>
+            ・<strong>昼フェーズ</strong>: 各エリア（中央広場や会議室など）を自由に移動して同じ部屋の人とチャットが可能です。<br><br>
+            <strong>【あなたの役職ルール】</strong><br>${roleDescriptions[roleStyle] || ""}`;
         } else {
-            overlayDescText.textContent = isPermanent ? "「ロビーに戻る」ボタンを押すと、すべての状態を初期化します。" : "夜明けとともに結果を確認します。";
-            if (roleStyle === "人狼") overlayRoleText.className = "overlay-role wolf-color";
-            else if (roleStyle === "テルテル") overlayRoleText.className = "overlay-role teruteru-color";
-            else overlayRoleText.className = "overlay-role citizen-color";
-            overlayRoleText.style.color = "";
+            btnSkipOverlay.style.display = "none";
+            if (roleStyle === "ANNOUNCE") {
+                overlayDescText.textContent = "戦況に変化がありました。";
+            } else {
+                overlayDescText.textContent = isPermanent ? "「ロビーに戻る」ボタンを押すと、すべての状態を初期化します。" : "夜明けとともに結果を確認します。";
+            }
         }
+
+        // スタイル変更用クラス割り当て
+        if (roleStyle === "人狼") overlayRoleText.className = "overlay-role wolf-color";
+        else if (roleStyle === "テルテル") overlayRoleText.className = "overlay-role teruteru-color";
+        else if (roleStyle === "市民" || roleStyle === "占い師" || roleStyle === "騎士") overlayRoleText.className = "overlay-role citizen-color";
+        else overlayRoleText.className = "overlay-role";
         
         overlay.style.display = 'flex'; 
-        if (!isPermanent) {
-            setTimeout(() => overlay.style.display = 'none', 4500);
+        
+        if (!isPermanent && !isGameStart) {
+            if (overlayTimeout) clearTimeout(overlayTimeout);
+            overlayTimeout = setTimeout(() => overlay.style.display = 'none', 4500);
         }
     }
 </script>
