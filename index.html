@@ -314,6 +314,17 @@
             });
         }
     }
+　
+   if (isHost && peer) {
+        peer.on('connection', (c) => {
+            c.on('data', (data) => handleReceivedData(data, c));
+            c.on('close', () => {
+                connections = connections.filter(cx => cx !== c);
+                playerList = playerList.filter(p => p.peerId !== c.peer);
+                syncAllPlayers();
+            });
+        });
+    }
 
     // P2P通信データハンドリング
     function handleReceivedData(data, connection) {
@@ -609,17 +620,17 @@
     });
 
     // ホスト専用の進行制御
-    if (isHost) {
-        btnGameControl.addEventListener('click', () => {
-            if (currentPhase === "LOBBY") {
-                startGame();
-            }
-        });
-        btnResetGame.addEventListener('click', () => {
-            location.reload();
-        });
-    }
+  btnGameControl.addEventListener('click', () => {
+        if (isHost && currentPhase === "LOBBY") {
+            startGame();
+        }
+    });
 
+    btnResetGame.addEventListener('click', () => {
+        location.reload();
+    });
+
+  
 function startGame() {
         if (!isHost) return;
         btnGameControl.style.display = 'none';
@@ -628,37 +639,16 @@ function startGame() {
         let count = playerList.length;
         let roles = [];
 
-        // 人数に応じた「5つの役職」の最適な配分アルゴリズム
-        if (count === 3) {
-            // 3人：人狼、占い師、テルテル
-            roles = ["人狼", "占い師", "テルテル"];
-        } else if (count === 4) {
-            // 4人：人狼、占い師、市民、テルテル
-            roles = ["人狼", "占い師", "市民", "テルテル"];
-        } else if (count === 5) {
-            // 5人：5種類の役職が1人ずつ揃う黄金比
-            roles = ["人狼", "占い師", "騎士", "テルテル", "市民"];
-        } else if (count === 6) {
-            // 6人：人狼、占い師、騎士、テルテル、市民2
-            roles = ["人狼", "占い師", "騎士", "テルテル", "市民", "市民"];
-        } else if (count >= 7) {
-            // 7人以上：人狼2、占い師1、騎士1、テルテル1、残りはすべて市民
+        if (count === 3) roles = ["人狼", "占い師", "テルテル"];
+        else if (count === 4) roles = ["人狼", "占い師", "市民", "テルテル"];
+        else if (count === 5) roles = ["人狼", "占い師", "騎士", "テルテル", "市民"];
+        else {
             roles = ["人狼", "人狼", "占い師", "騎士", "テルテル"];
-            while (roles.length < count) {
-                roles.push("市民");
-            }
-        } else {
-            // 万が一の2人以下：シンプルに割り振り
-            roles = ["人狼"];
-            while (roles.length < count) {
-                roles.push("市民");
-            }
+            while (roles.length < count) roles.push("市民");
         }
 
-        // シャッフル
         roles = roles.sort(() => Math.random() - 0.5);
 
-        // プレイヤーへの反映と初期化
         for (let i = 0; i < playerList.length; i++) {
             playerList[i].role = roles[i];
             playerList[i].alive = true;
@@ -671,12 +661,9 @@ function startGame() {
         displayRoleOverlay(myRole);
 
         playerList.forEach(p => {
-            if (p.isDummy) return;
-            if (p.name === myName) return;
+            if (p.isDummy || p.name === myName) return;
             const c = connections.find(cx => cx.peer === p.peerId);
-            if (c) {
-                c.send({ type: "SHOW_ROLE", role: p.role });
-            }
+            if (c) c.send({ type: "SHOW_ROLE", role: p.role });
         });
 
         syncAllPlayers();
