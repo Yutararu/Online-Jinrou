@@ -733,14 +733,16 @@ function startGame() {
         setupActionPanel();
     }
 
-    function processPhaseEnd() {
+ function processPhaseEnd() {
         if (!isHost) return;
 
         if (currentPhase === "DAY") {
-            // 投票集計
+            // 昼終了時：ボットで未投票の分があれば埋めてから、夜に入る直前に集計を実行
+            runBotAI();
+            logMain("【昼フェーズ終了】投票の集計を開始します...");
             executeVotingResult();
         } else if (currentPhase === "NIGHT") {
-            // 夜のアクション解決（6大エリア効果の適用）
+            // 夜のアクション解決
             executeNightResult();
         }
     }
@@ -880,16 +882,15 @@ function startGame() {
         hostStartPhase("DAY", 90);
     }
 
-    function checkVotesCompletion() {
+function checkVotesCompletion() {
         if (!isHost) return;
-        runBotAI(); // ボットの投票を埋める
+        runBotAI(); // ボットの投票をセット
 
+        // 昼の間は全員の投票が完了しても即集計せず、ログ表示のみ（集計は昼の最後に行う）
         let requiredVoters = playerList.filter(p => p.alive && p.hasVotingRight);
         let allDone = requiredVoters.every(p => votesReceived[p.name]);
-
         if (allDone) {
-            clearInterval(countdownInterval);
-            executeVotingResult();
+            logMain("[システム] 全員の投票が完了しました。昼の時間が終了するまでお待ちください。");
         }
     }
 
